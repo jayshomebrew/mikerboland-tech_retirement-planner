@@ -3416,12 +3416,14 @@ const REAL_DOLLAR_FIELDS = [
   'bracketFillRoom', 'bracketFillDraw',
   'annuityIncome', 'annuityExcluded', 'annuityPremium',
   'hsaBalance',
+  'guardrailAdjustment',
 ];
 // Objects whose VALUES are money and whose keys are ids or category names.
 const REAL_DOLLAR_MAPS = ['perAccountBalances', 'perAccountContributions', 'recurringExpensesByCategory'];
 
 // Deliberately NOT deflated, and each for a reason worth stating: marketReturn
-// and weightedCAGR are rates; guardrailMultiplier is a ratio; acaFplPercent is a
+// and weightedCAGR are rates; guardrailMultiplier is a ratio, and guardrailRate
+// and guardrailTargetRate are withdrawal rates; acaFplPercent is a
 // percentage of a threshold that indexes on its own schedule; myAge, spouseAge,
 // year, yearsFromNow, age65Count and age65OnReturn are counts or dates, not
 // money at all. The test pack asserts this list is exhaustive against a real
@@ -8323,6 +8325,17 @@ const DEFAULT_PLAN_INFO = {
   // Spending phases (go-go / slow-go / no-go): staged multipliers on base
   // retirement spending. Disabled by default — flat spending is the classic
   // (conservative) assumption; enabling this models the "retirement smile."
+  // Guyton-Klinger spending guardrails as a PLAN setting (see GUARDRAILS below
+  // computeProjections' helpers). Off by default: it changes what a plan spends,
+  // so it is opted into, never assumed.
+  spendingGuardrailsEnabled: false,
+  guardrailBandPct: 0.20,        // rate this far above/below target trips a guardrail
+  guardrailAdjustPct: 0.10,      // each trip moves the portfolio withdrawal this much
+  guardrailSunsetYears: 15,      // no capital-preservation cuts in the plan's last N years
+  guardrailInflationRule: true,  // skip the inflation raise after a losing year while over target
+  guardrailInflationCapPct: 0.06,// largest inflation raise in one year (0 = no cap)
+  guardrailFloorPct: 0,          // never spend below this share of the plan (0 = no floor)
+  guardrailTarget: 'schedule',   // 'schedule' = follow the plan's own path; 'classic' = first-year rate
   spendingPhasesEnabled: false,
   goGoEndAge: 75,                // Last age of the go-go phase (inclusive)
   slowGoEndAge: 85,              // Last age of the slow-go phase (inclusive); no-go after
@@ -8385,6 +8398,11 @@ const activeAdvancedSettings = (pi, fmt = (v) => '$' + Math.round(v).toLocaleStr
   if (pi.withdrawalBracketFill) {
     out.push({ key: 'withdrawalPriority', label: 'Pre-tax spending',
       detail: `drawn first, up to the ${pi.withdrawalBracketFill} bracket each year` });
+  }
+  if (pi.spendingGuardrailsEnabled) {
+    const r = guardrailRuleOfPlan(pi);
+    out.push({ key: 'guardrails', label: 'Spending guardrails',
+      detail: `Guyton-Klinger: the withdrawal moves ${Math.round(r.adjustPct * 100)}% when its rate strays ${Math.round(r.bandPct * 100)}% from ${r.target === 'classic' ? 'the first-year rate' : 'the plan\u2019s path'}` });
   }
   if (pi.spendingPhasesEnabled) {
     out.push({ key: 'spendingPhases', label: 'Spending phases',
@@ -8730,11 +8748,18 @@ const sandboxScenario = (base = {}, controls = {}) => {
   // them on pi would make them look like something the plan had been edited to
   // say.
   const opts = {};
-  if (controls.spendingGuardrails === true) {
-    opts.spendingRule = {
-      bandPct: Number.isFinite(controls.guardrailBandPct) ? controls.guardrailBandPct : 0.20,
-      adjustPct: Number.isFinite(controls.guardrailAdjustPct) ? controls.guardrailAdjustPct : 0.10,
-    };
+  // Guardrails are a PLAN setting now (pi.spendingGuardrailsEnabled), so the
+  // lever edits the plan like the survivor switch does: that way everything
+  // that reads the composed plan — the health check's simulations, a saved
+  // scenario, "make this the plan" — runs the same rule the page is showing.
+  if (typeof controls.spendingGuardrails === 'boolean') {
+    if (controls.spendingGuardrails !== !!pi.spendingGuardrailsEnabled) {
+      moved.push({ kind: 'note', name: 'Spending guardrails', field: '',
+                   from: pi.spendingGuardrailsEnabled ? 'on' : 'off', to: controls.spendingGuardrails ? 'on' : 'off' });
+    }
+    pi = { ...pi, spendingGuardrailsEnabled: controls.spendingGuardrails };
+    if (Number.isFinite(controls.guardrailBandPct)) pi.guardrailBandPct = controls.guardrailBandPct;
+    if (Number.isFinite(controls.guardrailAdjustPct)) pi.guardrailAdjustPct = controls.guardrailAdjustPct;
   }
   if (controls.qcd === false) opts.disableQCD = true;
 
@@ -9061,6 +9086,108 @@ const streamPartialYear = (stream, ownerAge, pi = {}) => {
   return plain;
 };
 
+// ── GUARDRAILS: GUYTON-KLINGER DECISION RULES ────────────────────────────────
+// Guyton & Klinger, "Decision Rules and Maximum Initial Withdrawal Rates",
+// Journal of Financial Planning, March 2006 (building on Guyton 2004). Their
+// rules, and how each is carried here:
+//
+//   Withdrawal (inflation) rule — the withdrawal rises with inflation each year,
+//     EXCEPT that there is no raise in a year following a negative portfolio
+//     return when the current withdrawal rate is above the initial one; a
+//     skipped raise is never made up. Their tests also capped the raise at 6%.
+//   Capital preservation rule — when the current withdrawal rate rises more
+//     than 20% above the initial rate, cut the withdrawal 10%. Not applied in
+//     the final 15 years of the distribution period, when the portfolio no
+//     longer needs protecting for the long run.
+//   Prosperity rule — when it falls more than 20% below, raise it 10%.
+//   Portfolio management rule — which ASSET CLASS funds the withdrawal after
+//     good and bad years. Not modelled: this engine grows accounts, not asset
+//     classes, and the withdrawal order already decides which account pays.
+//
+// Two places this engine has to translate the paper rather than copy it:
+//
+//   1. It is spending-led. The paper moves a withdrawal; here the reader sets a
+//      spending target and the solver finds the withdrawal (taxes, Social
+//      Security and everything else included). So a guardrail is a DOLLAR
+//      adjustment to spending, sized as a share of the PORTFOLIO withdrawal —
+//      "cut the withdrawal 10%", not "cut spending 10%". With Social Security
+//      covering half the budget, a 10% cut to total spending would be a 20% cut
+//      to the withdrawal: twice what the research tested. The adjustment then
+//      rides inflation like the spending it modifies, and a skipped raise stays
+//      skipped, as the paper says.
+//
+//   2. The paper's retiree has no other income, so one initial rate is the
+//      right target for life. A real plan's withdrawals are SHAPED: heavy in a
+//      bridge before Social Security or a pension starts, lighter after. Held to
+//      the first-year rate, the drop when Social Security arrives reads as a
+//      windfall, and the prosperity rule raises spending 10% a year until the
+//      portfolio is back to bridge-level withdrawals — spending the money the
+//      plan counted on for later. So by default ('schedule') the target is the
+//      plan's OWN expected rate for each year, taken from the same plan run at
+//      its expected returns: the guardrails move when markets beat or trail the
+//      plan, never because the plan's income changed as scheduled. With the
+//      expected returns themselves nothing trips, which is the point — the plan
+//      is the path. 'classic' keeps the paper's single first-year rate.
+//
+// The rate each year is the paper's: last year's portfolio withdrawal (spending
+// only — an excess RMD is reinvested, not spent) raised by this year's
+// inflation, over the portfolio at the start of the year.
+const GUARDRAIL_DEFAULTS = {
+  bandPct: 0.20, adjustPct: 0.10, sunsetYears: 15,
+  inflationRule: true, inflationCapPct: 0.06, floorPct: 0, target: 'schedule',
+};
+const clampNum = (v, lo, hi, dflt) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : dflt);
+// The plan's own rule, read off personalInfo, with every field bounded.
+const guardrailRuleOfPlan = (pi = {}) => ({
+  bandPct: clampNum(pi.guardrailBandPct, 0.05, 0.5, GUARDRAIL_DEFAULTS.bandPct),
+  adjustPct: clampNum(pi.guardrailAdjustPct, 0.01, 0.5, GUARDRAIL_DEFAULTS.adjustPct),
+  sunsetYears: clampNum(pi.guardrailSunsetYears, 0, 40, GUARDRAIL_DEFAULTS.sunsetYears),
+  inflationRule: pi.guardrailInflationRule !== false,
+  inflationCapPct: clampNum(pi.guardrailInflationCapPct, 0, 0.5, GUARDRAIL_DEFAULTS.inflationCapPct),
+  floorPct: clampNum(pi.guardrailFloorPct, 0, 1, GUARDRAIL_DEFAULTS.floorPct),
+  target: pi.guardrailTarget === 'classic' ? 'classic' : 'schedule',
+});
+// Which rule a projection runs under. opts.spendingRule === false switches
+// guardrails off whatever the plan says (a what-if, a comparison); an object
+// switches them on with its fields over the plan's; otherwise the plan decides.
+const resolveSpendingRule = (pi = {}, opts = {}) => {
+  if (opts.spendingRule === false) return null;
+  if (opts.spendingRule && typeof opts.spendingRule === 'object') {
+    const base = guardrailRuleOfPlan(pi);
+    const o = opts.spendingRule;
+    return {
+      ...base,
+      ...(Number.isFinite(o.bandPct) ? { bandPct: clampNum(o.bandPct, 0.05, 0.5) } : {}),
+      ...(Number.isFinite(o.adjustPct) ? { adjustPct: clampNum(o.adjustPct, 0.01, 0.5) } : {}),
+      ...(Number.isFinite(o.sunsetYears) ? { sunsetYears: clampNum(o.sunsetYears, 0, 40) } : {}),
+      ...(typeof o.inflationRule === 'boolean' ? { inflationRule: o.inflationRule } : {}),
+      ...(Number.isFinite(o.inflationCapPct) ? { inflationCapPct: clampNum(o.inflationCapPct, 0, 0.5) } : {}),
+      ...(Number.isFinite(o.floorPct) ? { floorPct: clampNum(o.floorPct, 0, 1) } : {}),
+      ...(o.target === 'classic' || o.target === 'schedule' ? { target: o.target } : {}),
+      ...(o.targetRates && typeof o.targetRates === 'object' ? { targetRates: o.targetRates } : {}),
+      ...(o.initialWithdrawalRate > 0 ? { initialWithdrawalRate: o.initialWithdrawalRate } : {}),
+    };
+  }
+  return pi.spendingGuardrailsEnabled ? guardrailRuleOfPlan(pi) : null;
+};
+// The withdrawal portion a guardrail acts on: what left the portfolio to be
+// spent (an excess RMD is forced out and reinvested, so it is not spending).
+const spendingWithdrawalOf = (row) => Math.max(0, ((row && row.portfolioWithdrawal) || 0) - ((row && row.excessRMD) || 0));
+// The plan's expected guardrail rate for each age, measured exactly as the
+// guardrail measures a live year, from a run at the plan's expected returns
+// with guardrails off. Keyed by age. Computed once per Monte Carlo job by the
+// worker and handed in, so a thousand simulations do not each recompute it.
+const guardrailTargetRates = (rows, pi = {}) => {
+  const out = {};
+  for (let k = 1; k < (rows || []).length; k++) {
+    const prev = rows[k - 1], row = rows[k];
+    if (!(prev.totalPortfolio > 0)) continue;
+    const infl = pi.inflationRate ?? 0.03;
+    out[row.myAge] = spendingWithdrawalOf(prev) * (1 + infl) / prev.totalPortfolio;
+  }
+  return out;
+};
+
 function computeProjections(pi, accts, streams, assetList, events = [], recurringExpensesList = [], currentYearArg, opts = {}) {
   // currentYear used to be captured from RetirementPlanner's closure. It's now an
   // explicit parameter (with a fallback) so this function can be moved to module
@@ -9070,14 +9197,10 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
   // Each slot is null/undefined (use deterministic cagr + pi.inflationRate) or
   // { marketReturn, inflation } to drive Monte Carlo / historical sequence runs.
   const yearOverrides = opts.yearOverrides;
-  // opts.spendingRule: optional Guyton-Klinger-style dynamic spending guardrails
-  // { bandPct = 0.20, adjustPct = 0.10, initialWithdrawalRate? }. Each retirement
-  // year after the first, the PRIOR year's withdrawal rate is compared to the
-  // anchor rate (first retirement year's rate unless given) ± band. Outside the
-  // band, the real spending target is cut/raised by adjustPct — persistently
-  // (multiplier compounds). Rates use withdrawal ÷ end-of-year portfolio,
-  // consistently for both anchor and comparison.
-  const spendingRule = opts.spendingRule || null;
+  // Guyton-Klinger guardrails — see GUARDRAILS above. From the plan
+  // (pi.spendingGuardrailsEnabled) unless opts.spendingRule overrides it: an
+  // object switches them on (Monte Carlo's own test, a what-if), false off.
+  const spendingRule = resolveSpendingRule(pi, opts);
   // ── CONVERSION GUARDRAIL ────────────────────────────────────────────────────
   // The spending guardrail below throttles what you SPEND when the portfolio
   // falls behind. This does the same for what you CONVERT, and for a sharper
@@ -9094,10 +9217,25 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
   // wrong at all. The return is the only signal that isolates "the market went
   // against me" from "I am spending my money as planned".
   let conversionThrottled = false; // whether this year's conversion was cut
-  let guardrailMultiplier = 1;
+  let guardrailMultiplier = 1;  // this year's spending ÷ the plan's (reported)
+  let guardrailAdjustment = 0;  // nominal $ added to (or, negative, cut from) spending
   let guardrailAnchorRate = (spendingRule && spendingRule.initialWithdrawalRate > 0)
     ? spendingRule.initialWithdrawalRate : null;
   let guardrailPrevYear = null; // last pushed year row (for prior-year rate)
+  // The plan's own expected rate by age ('schedule' target). At the plan's
+  // expected returns the live rates ARE these, so guardrails never trip, and
+  // the run is left alone rather than paying for a second projection to prove
+  // it. Driven by other returns (Monte Carlo, a historical sequence, a stress
+  // test) the path comes from the caller, or is computed here once.
+  let guardrailTargets = null;
+  if (spendingRule && spendingRule.target === 'schedule') {
+    if (spendingRule.targetRates) guardrailTargets = spendingRule.targetRates;
+    else if (Array.isArray(opts.yearOverrides) && opts.yearOverrides.some(Boolean)) {
+      const plain = computeProjections(pi, accts, streams, assetList, events, recurringExpensesList, currentYearArg,
+        { ...opts, yearOverrides: undefined, spendingRule: false });
+      guardrailTargets = guardrailTargetRates(plain, pi);
+    }
+  }
   let prevYearRow = null;       // last pushed row, tracked unconditionally
   // Before anything reads them: blank or non-numeric money fields become zero
   // instead of NaN, and an account with no contribution window funds nothing
@@ -9346,27 +9484,63 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
     // is modeled separately (and typically rises while discretionary falls).
     const phaseMultiplier = getSpendingPhaseMultiplier(pi, myAge);
 
-    // ── GUARDRAILS (dynamic spending) ─────────────────────────────────────────
-    // Evaluate the prior year's withdrawal rate against the anchor ± band and
-    // adjust the persistent spending multiplier before setting this year's target.
-    let guardrailEvent; // 'cut' | 'raise' | undefined
+    // ── GUARDRAILS (Guyton-Klinger) ───────────────────────────────────────────
+    // Decided at the start of each retirement year after the first, on last
+    // year's withdrawal, in the order the paper applies them: the inflation
+    // rule sets this year's planned withdrawal, then the rate that withdrawal
+    // implies is held against the target band.
+    let guardrailEvent;     // 'cut' | 'raise' | undefined
+    let guardrailInflation; // 'skipped' | 'capped' | undefined
+    let guardrailRate, guardrailTargetRate;
+    const planSpending = pi.desiredRetirementIncome * inflationFactor * spendFactor * phaseMultiplier;
     if (spendingRule && guardrailAnchorRate !== null && guardrailPrevYear
-        && myAge > pi.myRetirementAge && guardrailPrevYear.totalPortfolio > 0) {
-      // Spending-only rate: exclude excess RMD (forced out but reinvested, not
-      // spent) — otherwise RMD age would trip phantom "cuts" in healthy plans.
-      const prevRate = (guardrailPrevYear.portfolioWithdrawal - (guardrailPrevYear.excessRMD || 0)) / guardrailPrevYear.totalPortfolio;
-      const band = spendingRule.bandPct ?? 0.20;
-      const adjust = spendingRule.adjustPct ?? 0.10;
-      if (prevRate > guardrailAnchorRate * (1 + band)) {
-        guardrailMultiplier *= (1 - adjust);
-        guardrailEvent = 'cut';
-      } else if (prevRate < guardrailAnchorRate * (1 - band)) {
-        guardrailMultiplier *= (1 + adjust);
-        guardrailEvent = 'raise';
+        && householdAlive && guardrailPrevYear.totalPortfolio > 0) {
+      const infl = yearsFromNow > 0 && inflationFactors[yearsFromNow] && inflationFactors[yearsFromNow - 1]
+        ? inflationFactors[yearsFromNow] / inflationFactors[yearsFromNow - 1] - 1 : (pi.inflationRate ?? 0.03);
+      const wPrev = spendingWithdrawalOf(guardrailPrevYear);
+      const start = guardrailPrevYear.totalPortfolio;
+      // Adjustments already made are real: they ride inflation like spending.
+      guardrailAdjustment *= (1 + infl);
+      const scheduled = guardrailTargets ? guardrailTargets[myAge] : undefined;
+      guardrailTargetRate = spendingRule.target === 'schedule'
+        ? (Number.isFinite(scheduled) && scheduled > 0 ? scheduled : null)
+        : guardrailAnchorRate;
+      // Withdrawal rule. A skipped or capped raise comes off the portfolio-funded
+      // part only, and is never made up.
+      let raise = infl;
+      if (guardrailTargetRate !== null && spendingRule.inflationRule
+          && (guardrailPrevYear.marketReturn ?? 0) < 0 && wPrev * (1 + infl) / start > guardrailTargetRate) {
+        raise = 0;
+        guardrailInflation = 'skipped';
+      } else if (spendingRule.inflationCapPct > 0 && infl > spendingRule.inflationCapPct) {
+        raise = spendingRule.inflationCapPct;
+        guardrailInflation = 'capped';
       }
+      if (raise < infl) guardrailAdjustment -= (infl - raise) * wPrev;
+      const planned = wPrev * (1 + raise);
+      guardrailRate = planned / start;
+      if (guardrailTargetRate !== null) {
+        const yearsLeft = (pi.legacyAge || MAX_AGE) - myAge;
+        if (guardrailRate > guardrailTargetRate * (1 + spendingRule.bandPct)) {
+          // Capital preservation: not in the final years of the plan.
+          if (yearsLeft >= spendingRule.sunsetYears) {
+            guardrailAdjustment -= spendingRule.adjustPct * planned;
+            guardrailEvent = 'cut';
+          }
+        } else if (guardrailRate < guardrailTargetRate * (1 - spendingRule.bandPct)) {
+          guardrailAdjustment += spendingRule.adjustPct * planned;
+          guardrailEvent = 'raise';
+        }
+      }
+      // A floor, if the plan sets one: spending never goes below that share of
+      // the plan's own figure. The adjustment is clamped too, so the floor does
+      // not quietly bank a deeper cut that surfaces the moment spending rises.
+      const floor = (spendingRule.floorPct || 0) * planSpending;
+      if (planSpending + guardrailAdjustment < floor) guardrailAdjustment = floor - planSpending;
     }
-    const desiredIncome = pi.desiredRetirementIncome * inflationFactor * spendFactor * phaseMultiplier
-      * (spendingRule ? guardrailMultiplier : 1);
+    const desiredIncome = spendingRule
+      ? Math.max(0, planSpending + guardrailAdjustment) : planSpending;
+    guardrailMultiplier = planSpending > 0 ? desiredIncome / planSpending : 1;
     
     // ── ANNUITY PURCHASES ──────────────────────────────────────────────────────
     // At the owner's purchase age the premium leaves the chosen account type
@@ -11711,9 +11885,13 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
       survivorEvent: survivorEvent || undefined,
       effectiveFilingStatus: effectiveFilingStatus !== pi.filingStatus ? effectiveFilingStatus : undefined,
       primaryAlive, spouseAlive,
-      // Guardrails (only when opts.spendingRule is active)
+      // Guardrails (only when a spending rule is active)
       guardrailMultiplier: spendingRule ? guardrailMultiplier : undefined,
       guardrailEvent,
+      guardrailInflation,
+      guardrailAdjustment: spendingRule ? Math.round(guardrailAdjustment) : undefined,
+      guardrailRate: spendingRule && guardrailRate !== undefined ? guardrailRate : undefined,
+      guardrailTargetRate: spendingRule && guardrailTargetRate !== undefined && guardrailTargetRate !== null ? guardrailTargetRate : undefined,
       // Withdrawal solver diagnostics. solverResidual is what the year still
       // missed its spending target by AFTER taxes were settled on the real draw
       // (dollars; positive = under-delivered). Zero when nothing needed solving.
@@ -11745,11 +11923,17 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
     // (unless the caller supplied initialWithdrawalRate explicitly).
     prevYearRow = years[years.length - 1];
     if (spendingRule) {
-      guardrailPrevYear = years[years.length - 1];
-      if (guardrailAnchorRate === null && isRetired && guardrailPrevYear.totalPortfolio > 0) {
-        // Same spending-only definition as the per-year rate check above.
-        guardrailAnchorRate = (guardrailPrevYear.portfolioWithdrawal - (guardrailPrevYear.excessRMD || 0)) / guardrailPrevYear.totalPortfolio;
+      const thisRow = years[years.length - 1];
+      if (guardrailAnchorRate === null && isRetired) {
+        // The paper's initial rate: the first retirement year's withdrawal over
+        // the portfolio it was taken from — the balance at the START of that
+        // year, which is the end of the one before (or, for a plan that begins
+        // retired, this year's end plus what was taken out of it).
+        const startBal = guardrailPrevYear ? guardrailPrevYear.totalPortfolio
+          : thisRow.totalPortfolio + spendingWithdrawalOf(thisRow);
+        if (startBal > 0) guardrailAnchorRate = spendingWithdrawalOf(thisRow) / startBal;
       }
+      guardrailPrevYear = thisRow;
     }
 
     // After both spouses are dead, stop generating rows (B7). Otherwise the loop
@@ -11797,6 +11981,10 @@ const PLAN_FIELD_NOTES = {
   'personalInfo.withdrawalPriority': "order to draw down: any permutation of ['pretax','brokerage','roth']",
   'personalInfo.rothConversionIrmaaTier': 'integer tier index, or null for "not this mode"',
   'personalInfo.rothConversionBracket': "'', '22%', '24%' or '32%'",
+  'personalInfo.guardrailBandPct': 'decimal fraction: 0.20 = a 20% band either side of the target rate',
+  'personalInfo.guardrailAdjustPct': 'decimal fraction of the PORTFOLIO withdrawal moved per trip: 0.10 = 10%',
+  'personalInfo.guardrailFloorPct': 'decimal fraction of plan spending never cut below; 0 = no floor',
+  'personalInfo.guardrailTarget': "'schedule' (the plan's own expected path) or 'classic' (the first-year rate)",
 };
 
 const WITHDRAWAL_BUCKETS = ['pretax', 'brokerage', 'roth'];
@@ -12209,6 +12397,7 @@ const describePlanPatch = (state, patch) => {
     planShortfall, breakingPoint, survivableEdge, earliestSurvivingRetirementAge, STRESS_DIMENSIONS,
     scaleOwnContributions, addOwnContribution, accountsAtSavingsTarget,
     SAVINGS_FILL_ORDER, savingsBucketOf, employeeDollarsOf, savingsHeadroom,
+    GUARDRAIL_DEFAULTS, guardrailRuleOfPlan, resolveSpendingRule, guardrailTargetRates, spendingWithdrawalOf,
     fillSavingsToTarget, drainSavingsToTarget, savingsTargetPlan,
     splitBothContributors, BOTH_SPLIT_EMPLOYEE_SHARE,
     taxableGrowthFactor, breakEvenTaxRate, conversionFundingComparison,

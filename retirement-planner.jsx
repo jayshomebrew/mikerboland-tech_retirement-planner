@@ -581,7 +581,10 @@ const SECTION_MANIFEST = {
     // toggle; everything around it does.
     { id: 'longevity',     label: 'How Long the Money Had to Last', level: 'advanced' },
     { id: 'ltc',           label: 'Long-Term Care Outcomes',        level: 'advanced' },
-    { id: 'guardrails',    label: 'Spending Guardrail Outcomes',   level: 'advanced' },
+    // Standard since guardrails became a plan setting (v2.59.0): a reader who
+    // chose them needs to see how deep the cuts go, not only that the plan lived.
+    // It draws only when guardrails ran, so it costs nobody else anything.
+    { id: 'guardrails',    label: 'Spending Guardrail Outcomes',   level: 'standard' },
     { id: 'perYear',       label: 'Per-Year Historical Outcomes',  level: 'advanced' },
     { id: 'bands',         label: 'Portfolio Projection Bands',    level: 'essential' },
     { id: 'paths',         label: 'Sample Simulation Paths',       level: 'standard' },
@@ -608,6 +611,7 @@ const SECTION_MANIFEST = {
     { id: 'charitable',         label: 'Charitable giving & QCD',          level: 'standard' },
     { id: 'withdrawalPriority', label: 'Withdrawal priority',              level: 'standard' },
     { id: 'spendingPhases',     label: 'Spending phases',                  level: 'standard' },
+    { id: 'guardrails',         label: 'Spending guardrails',              level: 'standard' },
     { id: 'survivor',           label: 'Survivor modelling',               level: 'standard' },
     // Healthcare and long-term care are NOT listed, so they have no Hide button
     // and no Sections chip at any level, in either mode. Listing them as
@@ -7742,7 +7746,19 @@ function MonteCarloTab({ accounts, assets, currentYearReturn, detailLevel, incom
             </div>
           </div>
         )}
-        {/* Dynamic spending guardrails (Guyton-Klinger style) */}
+        {/* Dynamic spending guardrails (Guyton-Klinger). When the PLAN has them
+            on, every simulation already runs the plan's rule — the switch here
+            is for testing them on a plan that does not, so it steps aside. */}
+        {personalInfo.spendingGuardrailsEnabled ? (
+        <div className="mb-4 p-3 bg-slate-800/40 border border-slate-700/50 rounded-lg text-sm text-slate-300">
+          <span className="text-emerald-400">✓</span> Guyton-Klinger spending guardrails are on in your plan, so every
+          simulation below adjusts spending by them — cutting the withdrawal
+          {' '}{Math.round((personalInfo.guardrailAdjustPct ?? 0.10) * 100)}% when its rate strays
+          {' '}{Math.round((personalInfo.guardrailBandPct ?? 0.20) * 100)}% above
+          {' '}{personalInfo.guardrailTarget === 'classic' ? 'your first-year rate' : 'your plan’s path'}, raising it after good years.
+          <span className="block text-xs text-slate-500 mt-1">Change them on About you → Spending guardrails.</span>
+        </div>
+        ) : (
         <div className="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-800/40 border border-slate-700/50 rounded-lg">
           <label className="flex items-center gap-2 cursor-pointer">
             <input
@@ -7776,12 +7792,14 @@ function MonteCarloTab({ accounts, assets, currentYearReturn, detailLevel, incom
                 <span>%</span>
               </div>
               <span className="text-xs text-slate-500 max-w-md">
-                When a year's withdrawal rate drifts more than the band above/below your first-retirement-year rate,
-                spending is cut/raised by the adjust % — like real retirees do. Compare success rates with it on vs off.
+                A test of Guyton-Klinger guardrails on this simulation only: when the withdrawal rate strays more than
+                the band from your plan’s path, the withdrawal is cut or raised by the adjust %. Compare success rates
+                with it on and off — and to make it part of your plan, turn it on at About you → Spending guardrails.
               </span>
             </>
           )}
         </div>
+        )}
         {/* Longevity sampling — vary lifespan, not just markets */}
         <div className="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-800/40 border border-slate-700/50 rounded-lg">
           <label className="flex items-center gap-2 cursor-pointer">
@@ -11815,6 +11833,118 @@ function PersonalInfoTab({ onShowEverything, onOpenTaxPlanning, accounts, dataWa
         </div>
         </HideableBlock>
 
+        <HideableBlock tab="personal" id="guardrails" level={detailLevel}
+                       vis={sectionVisibility} setVis={setSectionVisibility}>
+        {/* Spending guardrails (Guyton-Klinger). The rules and how the engine
+            carries them are documented at GUARDRAILS in engine.js. */}
+        <div className="border-t border-slate-700/50 mt-5 pt-5">
+          <h4 className="text-sm font-semibold text-slate-300 mb-3 uppercase tracking-wide">Spending Guardrails</h4>
+          <label className="flex items-start gap-2 cursor-pointer mb-3">
+            <input
+              type="checkbox"
+              checked={localInfo.spendingGuardrailsEnabled || false}
+              onChange={e => handleChange('spendingGuardrailsEnabled', e.target.checked)}
+              className="w-4 h-4 mt-0.5 rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500/50"
+            />
+            <span className="text-sm text-slate-300">
+              Adjust spending with Guyton-Klinger guardrails
+              <span className="block text-xs text-slate-500 mt-1">
+                Spend more after good markets and less after bad ones, by rule, instead of spending a fixed amount
+                whatever happens. Every screen uses it — the Dashboard, reports, and the Will it last? simulations.
+              </span>
+            </span>
+          </label>
+
+          {localInfo.spendingGuardrailsEnabled && (() => {
+            const pct = (k, d) => Math.round(((localInfo[k] ?? d) * 100) * 10) / 10;
+            const setPct = (k, lo, hi) => (e) => {
+              const v = Number(e.target.value);
+              if (Number.isFinite(v)) handleChange(k, Math.min(hi, Math.max(lo, v)) / 100);
+            };
+            return (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+                  <div>
+                    <label className={compactLabelStyle}>Guardrail band (± % of target rate)</label>
+                    <input type="number" min="5" max="50" step="1" value={pct('guardrailBandPct', 0.20)}
+                      onChange={setPct('guardrailBandPct', 5, 50)} className={compactInputStyle}
+                      aria-label="Guardrail band, percent" />
+                    <span className="text-xs text-slate-500">Research: 20%</span>
+                  </div>
+                  <div>
+                    <label className={compactLabelStyle}>Adjustment (% of the withdrawal)</label>
+                    <input type="number" min="1" max="50" step="1" value={pct('guardrailAdjustPct', 0.10)}
+                      onChange={setPct('guardrailAdjustPct', 1, 50)} className={compactInputStyle}
+                      aria-label="Guardrail adjustment, percent of the withdrawal" />
+                    <span className="text-xs text-slate-500">Research: 10%</span>
+                  </div>
+                  <div>
+                    <label className={compactLabelStyle}>Target withdrawal rate</label>
+                    <select value={localInfo.guardrailTarget === 'classic' ? 'classic' : 'schedule'}
+                      onChange={e => handleChange('guardrailTarget', e.target.value)} className={compactInputStyle}
+                      aria-label="Target withdrawal rate">
+                      <option value="schedule">Follow my plan’s path (recommended)</option>
+                      <option value="classic">Classic: my first-year rate</option>
+                    </select>
+                    <span className="text-xs text-slate-500">
+                      {localInfo.guardrailTarget === 'classic'
+                        ? 'One target for life, as in the original paper'
+                        : 'Social Security or a pension starting is not mistaken for a windfall'}
+                    </span>
+                  </div>
+                  <div>
+                    <label className={compactLabelStyle}>No cuts in the plan’s last (years)</label>
+                    <input type="number" min="0" max="40" step="1" value={localInfo.guardrailSunsetYears ?? 15}
+                      onChange={e => { const v = Number(e.target.value); if (Number.isFinite(v)) handleChange('guardrailSunsetYears', Math.min(40, Math.max(0, v))); }}
+                      className={compactInputStyle} aria-label="No cuts in the plan's last years" />
+                    <span className="text-xs text-slate-500">Research: 15 years</span>
+                  </div>
+                  <div>
+                    <label className={compactLabelStyle}>Largest inflation raise (%/yr, 0 = none)</label>
+                    <input type="number" min="0" max="50" step="0.5" value={pct('guardrailInflationCapPct', 0.06)}
+                      onChange={setPct('guardrailInflationCapPct', 0, 50)} className={compactInputStyle}
+                      aria-label="Largest inflation raise, percent" />
+                    <span className="text-xs text-slate-500">Research: 6%</span>
+                  </div>
+                  <div>
+                    <label className={compactLabelStyle}>Never spend below (% of plan, 0 = no floor)</label>
+                    <input type="number" min="0" max="100" step="1" value={pct('guardrailFloorPct', 0)}
+                      onChange={setPct('guardrailFloorPct', 0, 100)} className={compactInputStyle}
+                      aria-label="Spending floor, percent of plan" />
+                    <span className="text-xs text-slate-500">Not in the research; a safety net for essentials</span>
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 cursor-pointer mb-3">
+                  <input type="checkbox" checked={localInfo.guardrailInflationRule !== false}
+                    onChange={e => handleChange('guardrailInflationRule', e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500/50" />
+                  <span className="text-sm text-slate-300">Skip the inflation raise after a losing year, while over target</span>
+                </label>
+                <div className="p-3 bg-slate-800/60 border border-slate-700/50 rounded-lg space-y-2 text-xs text-slate-400">
+                  <p>
+                    <strong className="text-slate-300">The rules</strong> (Guyton &amp; Klinger, <em>Journal of Financial
+                    Planning</em>, 2006). Each year the withdrawal rises with inflation — except after a year the
+                    portfolio lost money while the withdrawal rate is above target, when the raise is skipped and never made
+                    up. If the rate climbs more than {pct('guardrailBandPct', 0.20)}% above target the withdrawal is cut
+                    {' '}{pct('guardrailAdjustPct', 0.10)}% (not in the plan’s last {localInfo.guardrailSunsetYears ?? 15} years);
+                    more than {pct('guardrailBandPct', 0.20)}% below, it is raised {pct('guardrailAdjustPct', 0.10)}%.
+                  </p>
+                  <p>
+                    <strong className="text-slate-300">How this planner applies them.</strong> Cuts and raises are a share of
+                    what you draw from the portfolio, not of your whole budget — with Social Security paying half, a 10% cut
+                    to total spending would be a 20% cut to the withdrawal, twice what the research tested.
+                    {localInfo.guardrailTarget === 'classic'
+                      ? ' The target is your first retirement year’s rate. If Social Security or a pension starts later, that drop in withdrawals will read as a good market and trigger raises.'
+                      : ' The target follows your plan’s own expected rate each year, so a bridge before Social Security, or a pension starting, never trips a guardrail on its own. At your plan’s expected returns nothing trips — the Dashboard shows your plan as set — and the guardrails act in the simulations on Will it last? and in the plan-health check, where markets differ.'}
+                    {' '}The research’s fourth rule, which asset class to sell, is left to your withdrawal order.
+                  </p>
+                </div>
+              </>
+            );
+          })()}
+        </div>
+        </HideableBlock>
+
         {/* Survivor Modeling Section */}
         {localInfo.filingStatus === 'married_joint' && (
           <HideableBlock tab="personal" id="survivor" level={detailLevel}
@@ -14136,8 +14266,11 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
   const planSurvivor = !!personalInfo.survivorModelEnabled;
   const survivorOn = controls.survivorOn === undefined || controls.survivorOn === null
     ? planSurvivor : controls.survivorOn;
+  // A plan setting since v2.59.0 (About you → Spending guardrails), so the
+  // switch starts from the plan and moving it is a what-if like any other.
+  const planGuardrails = !!personalInfo.spendingGuardrailsEnabled;
   const guardrailsOn = controls.guardrailsOn === undefined || controls.guardrailsOn === null
-    ? false : controls.guardrailsOn;   // not a plan setting; off is the plan
+    ? planGuardrails : controls.guardrailsOn;
   const givingPct = personalInfo.charitableGivingPercent || 0;
   const qcdOn = controls.qcdOn === undefined || controls.qcdOn === null ? true : controls.qcdOn;
 
@@ -14329,7 +14462,7 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
     wdOrder !== 'plan' && `${({ pretax: 'pre-tax', brokerage: 'brokerage', roth: 'Roth' })[wdOrder]} first`,
     ltcChoice !== 'plan' && `care: ${({ none: 'none', default: '28 months', stress: '5-yr stress' })[ltcChoice] || ltcChoice}`,
     married && survivorOn !== planSurvivor && `survivor ${survivorOn ? 'on' : 'off'}`,
-    guardrailsOn && 'guardrails',
+    guardrailsOn !== planGuardrails && `guardrails ${guardrailsOn ? 'on' : 'off'}`,
     givingPct > 0 && !qcdOn && 'no QCD',
   ].filter(Boolean);
 
@@ -14340,7 +14473,7 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
     || claimMe !== planClaimMe || claimSp !== planClaimSp
     || savingsMoved || acctAdjCount > 0 || spend !== planSpend
     || rothOn !== rothConversionIsPlanned(personalInfo)
-    || survivorOn !== planSurvivor || guardrailsOn || !qcdOn
+    || survivorOn !== planSurvivor || guardrailsOn !== planGuardrails || !qcdOn
     || convMode !== 'plan' || wdFill !== 'plan' || wdOrder !== 'plan' || ltcChoice !== 'plan'
     || streamAdjCount > 0;
 
@@ -14369,7 +14502,7 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
         withdrawalPriority: wdOrder === 'plan' ? undefined : WD_ORDERS[wdOrder],
         ltcModel: ltcChoice === 'plan' ? undefined : ltcChoice,
         survivorModel: married && survivorOn !== planSurvivor ? survivorOn : undefined,
-        spendingGuardrails: guardrailsOn ? true : undefined,
+        spendingGuardrails: guardrailsOn !== planGuardrails ? guardrailsOn : undefined,
         qcd: qcdOn ? undefined : false,
         streamAdjustments: streamAdjCount ? streamAdj : undefined,
       });
@@ -14381,7 +14514,7 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
       return { ...sc, proj };
     } catch (e) { return { error: e.message }; }
   }, [touched, myRet, spRet, claimMe, claimSp, savingsRate, spend, rothOn, married,
-      survivorOn, guardrailsOn, qcdOn, planSurvivor,
+      survivorOn, guardrailsOn, planGuardrails, qcdOn, planSurvivor,
       convMode, convBracketPick, convTierPick, wdFill, wdOrder, ltcChoice, streamAdj, streamAdjCount,
       acctAdj, acctAdjCount, savingsMoved,
       personalInfo, accounts, incomeStreams, assets, oneTimeEvents, recurringExpenses,
@@ -14860,8 +14993,12 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
           <SandboxSwitch
             label="Spending guardrails" on={guardrailsOn}
             onChange={v => setControl('guardrailsOn', v)}
-            planLabel="plan: off"
-            note={guardrailsOn ? 'cuts 10% after a bad year, raises it after a good one' : null} />
+            planLabel={`plan: ${planGuardrails ? 'on' : 'off'}`}
+            note={guardrailsOn
+              ? (personalInfo.guardrailTarget === 'classic'
+                ? 'Guyton-Klinger, classic: acts on this page too'
+                : 'Guyton-Klinger: acts when markets differ from the plan — see the plan-health check')
+              : null} />
 
           <SandboxSwitch
             label="Qualified charitable distributions" on={givingPct > 0 && qcdOn}
@@ -16751,6 +16888,14 @@ const timelineEvents = (rows, i, milestones) => {
   if ((r.rothConversion || 0) > 0) out.push(`Converting ${formatCurrency(r.rothConversion)} to Roth`);
   if ((r.rmd || 0) > 0) out.push(`RMD ${formatCurrency(r.rmd)}`);
   if ((r.unfundedShortfall || 0) > 0) out.push(`Short ${formatCurrency(r.unfundedShortfall)}`);
+  // Guyton-Klinger decisions, when the plan runs guardrails.
+  if (r.guardrailEvent === 'cut') out.push('Guardrail: withdrawal cut');
+  if (r.guardrailEvent === 'raise') out.push('Guardrail: withdrawal raised');
+  if (r.guardrailInflation === 'skipped') out.push('Inflation raise skipped');
+  if (r.guardrailInflation === 'capped') out.push('Inflation raise capped');
+  if (Math.abs(r.guardrailAdjustment || 0) >= 1) {
+    out.push(`Spending ${r.guardrailAdjustment > 0 ? '+' : '−'}${formatCurrency(Math.abs(r.guardrailAdjustment))} vs plan`);
+  }
   return out;
 };
 

@@ -175,10 +175,24 @@ function runMonteCarlo(jobId, payload) {
   const walkUpYears = Math.max(0, simSettings.startAge - piWithLifeExp.myAge);
   const stochasticYears = yearsFromCurrent - walkUpYears;
 
-  // Optional Guyton-Klinger-style dynamic spending (engine opts.spendingRule).
-  const guardrails = (simSettings.guardrails && simSettings.guardrails.enabled)
+  // Guyton-Klinger guardrails. The PLAN's rule when the plan has them on
+  // (personalInfo.spendingGuardrailsEnabled); otherwise the simulation's own
+  // test switch, with its band and adjustment over the plan's other settings.
+  const mcGuard = (simSettings.guardrails && simSettings.guardrails.enabled)
     ? { bandPct: simSettings.guardrails.bandPct ?? 0.20, adjustPct: simSettings.guardrails.adjustPct ?? 0.10 }
     : null;
+  let guardrails = E.resolveSpendingRule(piWithLifeExp, mcGuard ? { spendingRule: mcGuard } : {});
+  // The 'schedule' target is the plan's own expected path, the same for every
+  // simulation — so it is measured once here rather than once per simulation.
+  // Except when a simulation's own plan differs from it (sampled lifespans move
+  // the first death and with it the survivor's spending; sampled care adds
+  // costs): then each simulation measures its own, or a death would read as a
+  // market windfall and trip the prosperity rule.
+  if (guardrails && guardrails.target === 'schedule' && !longevity && !ltcVary) {
+    const expected = computeProjections(piWithLifeExp, accounts, incomeStreams, assets, oneTimeEvents,
+      recurringExpenses, undefined, { spendingRule: false, currentYearReturn });
+    guardrails = { ...guardrails, targetRates: E.guardrailTargetRates(expected, piWithLifeExp) };
+  }
   const gCutYears = [], gMinMult = [], gEndMult = [];
 
   const isHistorical = simSettings.method === 'historical';
@@ -314,7 +328,7 @@ function runMonteCarlo(jobId, payload) {
 
     const proj = computeProjections(
       piForSim, accounts, incomeStreams, assets, oneTimeEvents, recurringExpenses,
-      undefined, { yearOverrides: overrides, spendingRule: guardrails || undefined,
+      undefined, { yearOverrides: overrides, spendingRule: guardrails || false,
                    currentYearReturn }
     );
 

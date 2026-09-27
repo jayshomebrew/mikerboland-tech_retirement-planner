@@ -11206,12 +11206,19 @@ section('P93 — the Sandbox: several levers, one plan');
     eq(surv.pi.survivorModelEnabled, true, 'survivor modelling lands on the plan');
     eq(Object.keys(surv.opts).length, 0, 'and not in the options');
 
+    // v2.59.0: guardrails became a PLAN setting, so the lever edits the plan —
+    // the health check's simulations and a saved scenario then run the same
+    // rule the page shows.
     const guard = engine.sandboxScenario(base(), { spendingGuardrails: true });
-    ok(guard.opts.spendingRule, 'guardrails land in the options');
-    approx(guard.opts.spendingRule.bandPct, 0.20, 'with a default band');
-    approx(guard.opts.spendingRule.adjustPct, 0.10, 'and a default adjustment');
+    eq(guard.pi.spendingGuardrailsEnabled, true, 'guardrails land on the plan');
+    eq(guard.opts.spendingRule, undefined, 'and not in the options');
+    const rule = engine.resolveSpendingRule(guard.pi, guard.opts);
+    approx(rule.bandPct, 0.20, 'with the default band');
+    approx(rule.adjustPct, 0.10, 'and the default adjustment');
     eq(guard.pi.survivorModelEnabled, base().pi.survivorModelEnabled,
-      'and touch nothing on the plan');
+      'and touch nothing else on the plan');
+    const offAgain = engine.sandboxScenario({ ...base(), pi: { ...base().pi, spendingGuardrailsEnabled: true } }, { spendingGuardrails: false });
+    eq(offAgain.pi.spendingGuardrailsEnabled, false, 'and switching them off a plan that has them works too');
 
     const noQcd = engine.sandboxScenario(base(), { qcd: false });
     eq(noQcd.opts.disableQCD, true, 'switching QCDs off lands in the options');
@@ -11233,7 +11240,16 @@ section('P93 — the Sandbox: several levers, one plan');
     };
     const plain = run({});
     ok(run({ survivorModel: true }).end !== plain.end, 'survivor modelling moves the outcome');
-    ok(run({ spendingGuardrails: true }).end !== plain.end, 'so do guardrails');
+    // At the plan's own expected returns the default ('schedule') guardrails do
+    // not trip — the plan IS the expected path — so the deterministic outcome
+    // is unchanged; the classic first-year target does move it.
+    eq(run({ spendingGuardrails: true }).end, plain.end, 'schedule guardrails leave the expected-return plan alone');
+    const classic = (() => {
+      const sc = engine.sandboxScenario({ ...b2(), pi: { ...giving, guardrailTarget: 'classic' } }, { spendingGuardrails: true });
+      const p = computeProjections(sc.pi, sc.accts, sc.streams, [], [], [], undefined, sc.opts);
+      return p[p.length - 1].totalPortfolio;
+    })();
+    ok(classic !== plain.end, 'classic guardrails move it');
     // Switching QCDs off must cost tax — that is the entire point of a QCD.
     gt(run({ qcd: false }).tax, plain.tax,
       'and turning QCDs off raises lifetime tax, which is what makes them worth having');
@@ -13993,7 +14009,7 @@ section('P118 — the Sandbox strategy levers');
     eq(r.pi.withdrawalBracketFill, '12%', 'withdrawal fill');
     eq(r.pi.withdrawalPriority.join(), 'roth,brokerage,pretax', 'withdrawal order');
     eq(r.pi.ltcModel, 'stress', 'and long-term care all survive together');
-    ok(r.opts && r.opts.spendingRule, 'guardrails still arrive as a projection option, not a plan edit');
+    eq(r.pi.spendingGuardrailsEnabled, true, 'guardrails arrive as a plan setting, with everything else');
     ok(r.proj.length > 0 && Number.isFinite(r.proj[r.proj.length - 1].totalPortfolio),
       'and the combined scenario projects a finite plan');
     const ss = r.streams.find(s => s.type === 'social_security');
@@ -15082,6 +15098,7 @@ section('P130 — the rest of the review: the tour, hidden settings, the mode on
       'a non-default withdrawal order is spelled out');
     ok(activeAdvancedSettings({ ...single, withdrawalBracketFill: '22%' }).some(x => /22% bracket/.test(x.detail)), 'as is bracket-fill spending');
     ok(activeAdvancedSettings({ ...single, spendingPhasesEnabled: true }).some(x => x.key === 'spendingPhases'), 'spending phases');
+    ok(activeAdvancedSettings({ ...single, spendingGuardrailsEnabled: true }).some(x => x.key === 'guardrails' && /Guyton-Klinger/.test(x.detail)), 'spending guardrails');
     ok(activeAdvancedSettings({ ...single, charitableGivingPercent: 5 }).some(x => /5% of spending/.test(x.detail)), 'charitable giving');
     ok(activeAdvancedSettings({ ...single, useDetailedCurrentYear: true }).some(x => x.key === 'currentYear'), "this year's detailed figures");
     // Survivor modelling is inert for a single filer, so naming it would be noise.
@@ -15099,7 +15116,7 @@ section('P130 — the rest of the review: the tour, hidden settings, the mode on
     const everything = { ...DEFAULT_PLAN_INFO, filingStatus: 'married_joint', survivorModelEnabled: true,
       rothConversionAmount: 50000, rothConversionStartAge: 60, rothConversionEndAge: 70,
       withdrawalPriority: ['roth', 'pretax', 'brokerage'], spendingPhasesEnabled: true,
-      charitableGivingPercent: 5, useDetailedCurrentYear: true };
+      charitableGivingPercent: 5, useDetailedCurrentYear: true, spendingGuardrailsEnabled: true };
     const keys = [...new Set(activeAdvancedSettings(everything).map(x => x.key))];
     keys.filter(k => k !== 'currentYear').forEach(k =>
       ok(hiddenPersonal.includes(k), `'${k}' is a Personal Info section simple mode hides`));
@@ -16347,6 +16364,166 @@ section('P146 — the what-if edits accounts, for building a bridge');
   ok(/onClick=\{\(\) => setControl\('withdrawalOrder', 'brokerage'\)\}/.test(dash), 'and offers brokerage-first when pre-tax-first is paying penalties');
   ok(/const stopShown = Number\.isFinite\(x\.stopAge\) \? x\.stopAge : baseStop\(a\);/.test(dash), 'stop ages shown are the what-if’s, after the retirement slider');
   ok(/m\.field !== 'contribution' \|\| \(m\.from != null && m\.to != null\)/.test(dash), 'the changes panel lists account edits');
+}
+
+section('P147 — Guyton-Klinger guardrails, as the research states them');
+
+{
+  const fsMod = require('fs'), pathMod = require('path'), vmMod = require('vm');
+  const ROOT = pathMod.resolve(__dirname, '..');
+  const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+  const worker = fsMod.readFileSync(pathMod.join(ROOT, 'worker.js'), 'utf8');
+  const { resolveSpendingRule, guardrailRuleOfPlan, guardrailTargetRates, spendingWithdrawalOf, GUARDRAIL_DEFAULTS } = engine;
+
+  // ── The settings: off unless chosen, research values by default ─────────
+  eq(engine.DEFAULT_PLAN_INFO.spendingGuardrailsEnabled, false, 'guardrails are off unless a plan turns them on');
+  eq(resolveSpendingRule(engine.DEFAULT_PLAN_INFO, {}), null, 'so an existing plan runs no rule');
+  const d = guardrailRuleOfPlan(engine.DEFAULT_PLAN_INFO);
+  eq(d.bandPct, 0.20, 'band 20% (Guyton & Klinger 2006)');
+  eq(d.adjustPct, 0.10, 'adjustment 10%');
+  eq(d.sunsetYears, 15, 'no capital-preservation cuts in the last 15 years');
+  eq(d.inflationRule, true, 'the inflation rule is on');
+  eq(d.inflationCapPct, 0.06, 'raises capped at 6%');
+  eq(d.floorPct, 0, 'no floor — the research has none');
+  eq(d.target, 'schedule', 'and the target follows the plan’s own path');
+  const wild = guardrailRuleOfPlan({ guardrailBandPct: 3, guardrailAdjustPct: -1, guardrailSunsetYears: 99, guardrailFloorPct: 2, guardrailTarget: 'x' });
+  ok(wild.bandPct === 0.5 && wild.adjustPct === 0.01 && wild.sunsetYears === 40 && wild.floorPct === 1 && wild.target === 'schedule',
+    'every setting is bounded, and an unknown target falls back to the plan’s path');
+  eq(resolveSpendingRule({ spendingGuardrailsEnabled: true }, { spendingRule: false }), null, 'opts false switches a plan’s rule off');
+  eq(resolveSpendingRule({}, { spendingRule: { bandPct: 0.3 } }).bandPct, 0.3, 'and an object switches one on, over the plan’s settings');
+
+  // ── A retiree with a bridge: retired at 60, Social Security at 70 ─────────
+  const base = { ...engine.DEFAULT_PLAN_INFO, myAge: 60, myRetirementAge: 60, filingStatus: 'single', state: 'Texas',
+    desiredRetirementIncome: 50000, legacyAge: 90, inflationRate: 0.03, healthcareModel: 'none', ltcModel: 'none' };
+  const accts = [
+    { id: 1, name: 'IRA', type: 'traditional_ira', owner: 'me', balance: 500000, contribution: 0, cagr: 0.06, startAge: 60, stopAge: 60, contributor: 'me' },
+    { id: 2, name: 'Brok', type: 'brokerage', owner: 'me', balance: 700000, contribution: 0, cagr: 0.06, startAge: 60, stopAge: 60, contributor: 'me', costBasisPercent: 0.7 }];
+  const ssLate = [{ id: 1, type: 'social_security', owner: 'me', name: 'SS', amount: 36000, startAge: 70, endAge: 120, cola: 0.03 }];
+  const run = (pi, o) => computeProjections(pi, accts, ssLate, [], [], [], TODAY_YEAR, o);
+  const on = { ...base, spendingGuardrailsEnabled: true };
+  const H = 45;
+  const seq = (map) => { const a = new Array(H).fill(undefined); Object.entries(map).forEach(([i, v]) => { a[+i] = v; }); return a; };
+
+  const off = run(base);
+  eq(off[5].guardrailMultiplier, undefined, 'with the plan off, no guardrail fields');
+
+  // At the plan's own expected returns the default target never trips: the
+  // plan IS the path, so the Dashboard shows the plan as set.
+  const sched = run(on);
+  eq(sched.filter(r => r.guardrailEvent || r.guardrailInflation).length, 0, 'the plan’s path trips nothing at expected returns');
+  eq(sched[sched.length - 1].totalPortfolio, off[off.length - 1].totalPortfolio, 'and ends exactly where the plan does');
+  // The classic single target misreads the bridge: Social Security arriving
+  // at 70 cuts the withdrawal, and the prosperity rule starts raising spending.
+  const classic = run({ ...on, guardrailTarget: 'classic' });
+  gt(classic.filter(r => r.myAge > 70 && r.guardrailEvent === 'raise').length, 3,
+    'the classic first-year target raises spending year after year once Social Security starts — the misfire the default avoids');
+
+  // Capital preservation: a crash in the first three years cuts the withdrawal
+  // 10% — of the PORTFOLIO withdrawal, not of total spending.
+  const crashMap = { 0: { marketReturn: -0.25, inflation: 0.03 }, 1: { marketReturn: -0.25, inflation: 0.03 }, 2: { marketReturn: -0.25, inflation: 0.03 } };
+  const noInfl = run({ ...on, guardrailInflationRule: false }, { yearOverrides: seq(crashMap) });
+  const k = noInfl.findIndex(r => r.guardrailEvent === 'cut');
+  ok(k > 0, 'a crash at the start of retirement trips the capital-preservation rule');
+  const cutRow = noInfl[k], prevRow = noInfl[k - 1];
+  const planSpend = cutRow.desiredIncome - cutRow.guardrailAdjustment;
+  const expectedCut = 0.10 * spendingWithdrawalOf(prevRow) * 1.03;
+  approx(-cutRow.guardrailAdjustment, expectedCut, 'the first cut is 10% of the planned portfolio withdrawal (last year’s, plus inflation)', 0.01);
+  gt(cutRow.guardrailRate, cutRow.guardrailTargetRate * 1.2, 'made because the rate was more than 20% over target');
+  const offCrash = run(base, { yearOverrides: seq(crashMap) });
+  const onCrash = run(on, { yearOverrides: seq(crashMap) });
+  eq(offCrash[offCrash.length - 1].totalPortfolio, 0, 'the same crash without guardrails runs the money out');
+  gt(onCrash[onCrash.length - 1].totalPortfolio, 250000, 'with them the plan survives it with money left');
+
+  // Withdrawal rule: after a losing year, while over target, no raise — and
+  // it is never made up.
+  const skip = onCrash.find(r => r.guardrailInflation === 'skipped');
+  ok(skip, 'a losing year while over target skips the inflation raise');
+  const kk = onCrash.indexOf(skip);
+  ok(onCrash[kk - 1].marketReturn < 0 && skip.guardrailRate > skip.guardrailTargetRate, 'only after a loss, and only while over target');
+  // A small loss after a strong year leaves the rate under target: no skip.
+  // (The same loss on its own leaves it just over, and skips — correctly.)
+  const mild = run(on, { yearOverrides: seq({ 11: { marketReturn: 0.20, inflation: 0.03 }, 12: { marketReturn: -0.01, inflation: 0.03 } }) });
+  const afterLoss = mild.find(r => r.myAge === mild[13].myAge);
+  lt(afterLoss.guardrailRate, afterLoss.guardrailTargetRate, 'after a strong year then a small loss, the rate is under target');
+  eq(afterLoss.guardrailInflation, undefined, 'so the loss skips nothing');
+  const alone = run(on, { yearOverrides: seq({ 12: { marketReturn: -0.01, inflation: 0.03 } }) });
+  eq(alone.find(r => r.myAge === alone[13].myAge).guardrailInflation, 'skipped', 'while the same loss on its own, leaving the rate over target, does');
+  const later = onCrash.slice(kk + 1).filter(r => !r.guardrailEvent && !r.guardrailInflation);
+  ok(later.length > 0 && later.every(r => r.guardrailAdjustment < 0), 'a skipped raise is not made up in the quiet years that follow');
+
+  // Inflation cap.
+  const hot = run(on, { yearOverrides: seq({ 3: { marketReturn: 0.05, inflation: 0.09 } }) });
+  const capped = hot.find(r => r.guardrailInflation === 'capped');
+  ok(capped, 'a 9% inflation year raises the withdrawal by the 6% cap only');
+  approx(-capped.guardrailAdjustment, 0.03 * spendingWithdrawalOf(hot[hot.indexOf(capped) - 1]), 'forgoing exactly the 3% above the cap', 0.01);
+  const uncapped = run({ ...on, guardrailInflationCapPct: 0 }, { yearOverrides: seq({ 3: { marketReturn: 0.05, inflation: 0.09 } }) });
+  eq(uncapped.filter(r => r.guardrailInflation === 'capped').length, 0, 'a cap of 0 means no cap');
+
+  // The last 15 years: no cuts, however bad.
+  const late = run(on, { yearOverrides: seq({ 18: { marketReturn: -0.3, inflation: 0.03 }, 19: { marketReturn: -0.3, inflation: 0.03 }, 20: { marketReturn: -0.3, inflation: 0.03 } }) });
+  eq(late.filter(r => r.guardrailEvent === 'cut').length, 0, 'a crash inside the final 15 years cuts nothing');
+  const lateNoSunset = run({ ...on, guardrailSunsetYears: 0 }, { yearOverrides: seq({ 18: { marketReturn: -0.3, inflation: 0.03 }, 19: { marketReturn: -0.3, inflation: 0.03 }, 20: { marketReturn: -0.3, inflation: 0.03 } }) });
+  gt(lateNoSunset.filter(r => r.guardrailEvent === 'cut').length, 0, 'and the same crash does cut once the sunset is set to 0');
+
+  // Prosperity: a boom raises the withdrawal.
+  const boom = run(on, { yearOverrides: seq({ 0: { marketReturn: 0.30, inflation: 0.03 }, 1: { marketReturn: 0.30, inflation: 0.03 }, 2: { marketReturn: 0.30, inflation: 0.03 } }) });
+  const up = boom.find(r => r.guardrailEvent === 'raise');
+  ok(up, 'three strong years trip the prosperity rule');
+  lt(up.guardrailRate, up.guardrailTargetRate * 0.8, 'because the rate fell more than 20% under target');
+  gt(up.desiredIncome, off.find(r => r.myAge === up.myAge).desiredIncome, 'and spending rises above the plan');
+
+  // A floor, when the plan sets one.
+  const slump = seq(Object.fromEntries([0, 1, 2, 3, 4, 5, 6, 7].map(i => [i, { marketReturn: -0.2, inflation: 0.03 }])));
+  const floored = run({ ...on, guardrailFloorPct: 0.85 }, { yearOverrides: slump });
+  gt(Math.min(...floored.map(r => r.guardrailMultiplier ?? 1)), 0.849, 'an 85% floor holds spending at 85% of plan');
+  lt(Math.min(...run(on, { yearOverrides: slump }).map(r => r.guardrailMultiplier ?? 1)), 0.5, 'without one, eight losing years cut far deeper');
+
+  // Target path: measured the way the live rate is.
+  const tr = guardrailTargetRates(off, base);
+  approx(tr[off[5].myAge], spendingWithdrawalOf(off[4]) * 1.03 / off[4].totalPortfolio, 'the target for a year is last year’s withdrawal plus inflation over the start balance', 1e-9);
+
+  // ── Money in today's dollars ─────────────────────────────────────────────
+  const eng = fsMod.readFileSync(pathMod.join(ROOT, 'engine.js'), 'utf8');
+  ok(/'guardrailAdjustment',\n\];/.test(eng), 'the spending adjustment is money, so it is restated in today’s dollars');
+  ok(!/'guardrailRate'|'guardrailTargetRate'/.test(eng.slice(eng.indexOf('const REAL_DOLLAR_FIELDS'), eng.indexOf('const REAL_DOLLAR_MAPS'))), 'the rates are not');
+
+  // ── Every screen runs the plan's rule ────────────────────────────────────
+  // Monte Carlo: at zero volatility and the plan's own return, the plan's path
+  // is exactly what every simulation sees, so guardrails change nothing.
+  const runJob = (payload) => {
+    const sb = { console, Math, Date, JSON, Object, Array, Number, String, Boolean, Set, Map,
+      Infinity, NaN, isNaN, parseFloat, parseInt, Error, RegExp, Promise, undefined, URLSearchParams, __out: [] };
+    sb.self = sb; sb.globalThis = sb; sb.location = { search: '?v=test' };
+    sb.importScripts = (spec) => vmMod.runInContext(fsMod.readFileSync(pathMod.join(ROOT, spec.split('?')[0]), 'utf8'), sb);
+    sb.postMessage = (m) => { if (m.type !== 'progress') sb.__out.push(m); };
+    vmMod.createContext(sb);
+    vmMod.runInContext(worker, sb);
+    sb.onmessage({ data: { jobId: 1, type: 'monteCarlo', payload } });
+    const err = sb.__out.find(m => m.type === 'error'); if (err) throw new Error(err.error);
+    return sb.__out.find(m => m.type === 'result').data;
+  };
+  const flat = { startAge: 60, numSimulations: 4, method: 'random', meanReturn: 0.06, stdDev: 0, inflationMean: 0.03, inflationStdDev: 0 };
+  const job = (pi, sim) => runJob({ personalInfo: pi, accounts: accts, incomeStreams: ssLate, assets: [], oneTimeEvents: [], recurringExpenses: [], simSettings: sim, seed: 7 });
+  const mOff = job(base, flat), mOn = job(on, flat);
+  eq(mOn.guardrailsEnabled, true, 'the simulations run the plan’s guardrails without being asked');
+  approx(mOn.percentile50, mOff.percentile50, 'and at the plan’s own returns they change nothing', 0.001);
+  const vol = { ...flat, numSimulations: 120, stdDev: 0.16 };
+  const vOff = job(base, vol), vOn = job(on, vol);
+  gt(vOn.successRate, vOff.successRate, 'in volatile markets the plan’s guardrails lift the success rate');
+  ok(/let guardrails = E\.resolveSpendingRule\(piWithLifeExp, mcGuard \? \{ spendingRule: mcGuard \} : \{\}\);/.test(worker),
+    'the simulation takes the plan’s rule, or its own test switch when the plan has none');
+  ok(/!longevity && !ltcVary\)/.test(worker), 'and measures each simulation’s own path when lifespans or care are sampled');
+
+  // The app: a plan setting on About you, reflected in Monte Carlo, the
+  // what-if and the timeline.
+  ok(/checked=\{localInfo\.spendingGuardrailsEnabled \|\| false\}/.test(jsx), 'About you turns guardrails on for the plan');
+  ['guardrailBandPct', 'guardrailAdjustPct', 'guardrailTarget', 'guardrailSunsetYears', 'guardrailInflationCapPct', 'guardrailFloorPct', 'guardrailInflationRule']
+    .forEach(f => ok(jsx.includes(`handleChange('${f}'`) || jsx.includes(`setPct('${f}'`), `and sets ${f}`));
+  ok(/Guyton &amp; Klinger, <em>Journal of Financial\s+Planning<\/em>, 2006/.test(jsx), 'citing the research it follows');
+  ok(/personalInfo\.spendingGuardrailsEnabled \? \(/.test(jsx), 'Monte Carlo says when the plan’s own guardrails are running');
+  ok(/const planGuardrails = !!personalInfo\.spendingGuardrailsEnabled;/.test(jsx) && /guardrailsOn !== planGuardrails/.test(jsx),
+    'the what-if switch starts from the plan');
+  ok(/'Guardrail: withdrawal cut'/.test(jsx) && /'Inflation raise skipped'/.test(jsx), 'and the timeline names each decision in its year');
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────────
