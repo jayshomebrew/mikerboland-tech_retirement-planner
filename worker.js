@@ -67,6 +67,7 @@ self.onmessage = (e) => {
   try {
     switch (type) {
       case 'monteCarlo':         runMonteCarlo(jobId, payload); break;
+      case 'strategyCompare':    runStrategyCompare(jobId, payload); break;
       case 'ssGrid':             runSocialSecurityGrid(jobId, payload, false); break;
       case 'ssMonteCarlo':       runSocialSecurityGrid(jobId, payload, true);  break;
       case 'rothOptimizer':      runRothOptimizer(jobId, payload); break;
@@ -112,7 +113,11 @@ function randomNormalSS() {
 // Sim years receive { marketReturn, inflation } drawn from Gaussian or replayed
 // from a historical sequence.
 // ============================================================================
-function runMonteCarlo(jobId, payload) {
+// `hooks` lets another job run a whole simulation and keep its result rather
+// than post it — the strategy comparison runs seven. Default: post as always.
+function runMonteCarlo(jobId, payload, hooks) {
+  const report = (hooks && hooks.progress) || ((percent) => postMessage({ jobId, type: 'progress', percent }));
+  const finish = (hooks && hooks.result) || ((data) => postMessage({ jobId, type: 'result', data }));
   const {
     simSettings, personalInfo, accounts, incomeStreams,
     assets, oneTimeEvents, recurringExpenses,
@@ -204,7 +209,7 @@ function runMonteCarlo(jobId, payload) {
   // variable strategy the portfolio rarely runs dry — a fixed percentage never
   // does — so the risk shows up here, as a year the budget shrinks, not in the
   // success rate.
-  const sFirst = [], sMin = [], sEnd = [];
+  const sFirst = [], sMin = [], sEnd = [], sTotal = [];
 
   const isHistorical = simSettings.method === 'historical';
   let historicalStartYears = null;
@@ -363,7 +368,10 @@ function runMonteCarlo(jobId, payload) {
       if (p.myAge >= simSettings.startAge) {
         path.push({ age: p.myAge, portfolio: p.totalPortfolio, real: p.totalPortfolio / cumInflation });
         if (p.myAge >= piForSim.myRetirementAge && (p.primaryAlive !== false || p.spouseAlive !== false)) {
-          spendReal.push((p.desiredIncome || 0) / cumInflation);
+          // Spending DELIVERED, not targeted: a spending target keeps its figure
+          // after the money runs out, and counting the target would show a failed
+          // run living as well as a funded one.
+          spendReal.push(Math.max(0, (p.desiredIncome || 0) - (p.unfundedShortfall || 0)) / cumInflation);
         }
       }
     }
@@ -372,6 +380,7 @@ function runMonteCarlo(jobId, payload) {
       sFirst.push(spendReal[0]);
       sMin.push(Math.min(...spendReal));
       sEnd.push(spendReal[spendReal.length - 1]);
+      sTotal.push(spendReal.reduce((sum, v) => sum + v, 0));
     }
 
     // Guardrail spending-path stats for this sim (cuts, trough, ending level).
@@ -430,10 +439,7 @@ function runMonteCarlo(jobId, payload) {
     }
 
     if ((sim + 1) % BATCH === 0 || sim + 1 === totalSims) {
-      postMessage({
-        jobId, type: 'progress',
-        percent: Math.round(((sim + 1) / totalSims) * 100),
-      });
+      report(Math.round(((sim + 1) / totalSims) * 100));
     }
   }
 
@@ -544,6 +550,11 @@ function runMonteCarlo(jobId, payload) {
       p10Min: q(sMin, 0.10),
       medianEnd: q(sEnd, 0.5),
       p10End: q(sEnd, 0.10),
+      // Everything the strategy let the household spend, retirement to the end,
+      // in today's dollars — the figure that separates a strategy that is safe
+      // because it spends little from one that is safe AND spends.
+      medianTotal: q(sTotal, 0.5),
+      p10Total: q(sTotal, 0.10),
     };
   }
 
@@ -573,10 +584,7 @@ function runMonteCarlo(jobId, payload) {
     });
   }
 
-  postMessage({
-    jobId,
-    type: 'result',
-    data: {
+  finish({
       successRate,
       successCount,
       totalSimulations: totalSims,
@@ -615,8 +623,47 @@ function runMonteCarlo(jobId, payload) {
       guardrailsEnabled: !!guardrails,
       guardrailStats,
       spendingStats,
-    },
   });
+}
+
+// ============================================================================
+// runStrategyCompare — the same simulation, once per withdrawal strategy.
+//
+// Every strategy is run on the SAME market paths: the random stream is reset to
+// one seed before each, and a strategy never changes how many draws a
+// simulation takes, so simulation #n meets the same markets under every rule.
+// Differences between rows are then the strategy's, not luck's.
+//
+// Guyton-Klinger runs as the plan's strategy (with the plan's own guardrail
+// settings); Monte Carlo's separate test switch is off, so no row runs a rule
+// on top of another.
+// ============================================================================
+function runStrategyCompare(jobId, payload) {
+  const strategies = Array.isArray(payload.strategies) && payload.strategies.length
+    ? payload.strategies.filter(st => E.WITHDRAWAL_STRATEGIES.includes(st)) : E.WITHDRAWAL_STRATEGIES;
+  const seed = Number.isFinite(payload.seed) ? payload.seed : 20260928;
+  const simSettings = { ...payload.simSettings, guardrails: { enabled: false } };
+  const rows = [];
+  strategies.forEach((st, i) => {
+    rand = seededRandom(seed);
+    const personalInfo = { ...payload.personalInfo, withdrawalStrategy: st, spendingGuardrailsEnabled: st === 'guardrails' };
+    let result = null;
+    runMonteCarlo(jobId, { ...payload, personalInfo, simSettings }, {
+      progress: (pct) => postMessage({ jobId, type: 'progress', percent: Math.round(((i + pct / 100) / strategies.length) * 100) }),
+      result: (data) => { result = data; },
+    });
+    // What each simulation left at ITS end, in today's dollars — not the last
+    // band, which by then holds only the households still alive (or none).
+    const real = result.real || {};
+    rows.push({
+      strategy: st,
+      successRate: result.successRate,
+      spending: result.spendingStats,
+      endMedianReal: real.percentile50 ?? null,
+      endP5Real: real.percentile5 ?? null,
+    });
+  });
+  postMessage({ jobId, type: 'result', data: { rows, seed, numSimulations: simSettings.numSimulations } });
 }
 
 // ============================================================================

@@ -16685,6 +16685,71 @@ section('P148 — five withdrawal-led strategies, in the engine, with tax');
     ok(jsx.includes(src), `the picker cites ${src}`));
 }
 
+section('P149 — comparing every withdrawal strategy on the same markets');
+
+{
+  const fsMod = require('fs'), pathMod = require('path'), vmMod = require('vm');
+  const ROOT = pathMod.resolve(__dirname, '..');
+  const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+  const html = fsMod.readFileSync(pathMod.join(ROOT, 'index.html'), 'utf8');
+  const workerSrc = fsMod.readFileSync(pathMod.join(ROOT, 'worker.js'), 'utf8');
+  const runJob = (type, payload) => {
+    const sb = { console, Math, Date, JSON, Object, Array, Number, String, Boolean, Set, Map,
+      Infinity, NaN, isNaN, parseFloat, parseInt, Error, RegExp, Promise, undefined, URLSearchParams, __out: [], __prog: [] };
+    sb.self = sb; sb.globalThis = sb; sb.location = { search: '?v=test' };
+    sb.importScripts = (spec) => vmMod.runInContext(fsMod.readFileSync(pathMod.join(ROOT, spec.split('?')[0]), 'utf8'), sb);
+    sb.postMessage = (m) => { if (m.type === 'progress') sb.__prog.push(m.percent); else sb.__out.push(m); };
+    vmMod.createContext(sb);
+    vmMod.runInContext(workerSrc, sb);
+    sb.onmessage({ data: { jobId: 1, type, payload } });
+    const err = sb.__out.find(m => m.type === 'error'); if (err) throw new Error(err.error);
+    return { data: sb.__out.find(m => m.type === 'result').data, progress: sb.__prog };
+  };
+  const pi = { ...engine.DEFAULT_PLAN_INFO, myAge: 62, myRetirementAge: 62, filingStatus: 'single', state: 'Texas',
+    desiredRetirementIncome: 60000, legacyAge: 95, inflationRate: 0.03 };
+  const accts = [
+    { id: 1, name: 'IRA', type: 'traditional_ira', owner: 'me', balance: 700000, contribution: 0, cagr: 0.06, startAge: 62, stopAge: 62, contributor: 'me' },
+    { id: 2, name: 'Brok', type: 'brokerage', owner: 'me', balance: 500000, contribution: 0, cagr: 0.06, startAge: 62, stopAge: 62, contributor: 'me', costBasisPercent: 0.7 }];
+  const ss = [{ id: 1, type: 'social_security', owner: 'me', name: 'SS', amount: 30000, startAge: 67, endAge: 120, cola: 0.03 }];
+  const sim = { startAge: 62, numSimulations: 60, method: 'random', meanReturn: 0.06, stdDev: 0.15, inflationMean: 0.03, inflationStdDev: 0.01 };
+  const base = { personalInfo: pi, accounts: accts, incomeStreams: ss, assets: [], oneTimeEvents: [], recurringExpenses: [], simSettings: sim };
+
+  const { data, progress } = runJob('strategyCompare', { ...base, seed: 77 });
+  eq(data.rows.map(r => r.strategy).join(','), engine.WITHDRAWAL_STRATEGIES.join(','), 'one row per strategy, in the picker’s order');
+  ok(data.rows.every(r => Number.isFinite(r.successRate) && r.spending && Number.isFinite(r.spending.medianTotal) && Number.isFinite(r.endMedianReal)),
+    'each with its success rate, its spending and what it leaves');
+  ok(progress.length > 0 && progress.every((p, i) => i === 0 || p >= progress[i - 1]) && progress[progress.length - 1] === 100,
+    'progress runs once, 0 to 100, across all seven');
+
+  // The same markets for every row: each row equals that strategy run alone
+  // on the same seed.
+  ['target', 'percent', 'vpw'].forEach(st => {
+    const alone = runJob('monteCarlo', { ...base, seed: 77, personalInfo: { ...pi, withdrawalStrategy: st } }).data;
+    const row = data.rows.find(r => r.strategy === st);
+    eq(row.successRate, alone.successRate, `${st}: the comparison row is the simulation run on its own, same markets`);
+    eq(Math.round(row.spending.medianTotal), Math.round(alone.spendingStats.medianTotal), `${st}: to the dollar`);
+    eq(Math.round(row.endMedianReal), Math.round(alone.real.percentile50), `${st}: and what is left is each run’s own final balance`);
+  });
+  const guard = data.rows.find(r => r.strategy === 'guardrails');
+  const tgt = data.rows.find(r => r.strategy === 'target');
+  ok(guard.successRate >= tgt.successRate, 'guardrails run as a strategy of their own, not on top of another');
+  // Spending counts what was DELIVERED: a target that ran out does not show
+  // its full target in the lean years.
+  ok(/Math\.max\(0, \(p\.desiredIncome \|\| 0\) - \(p\.unfundedShortfall \|\| 0\)\)/.test(workerSrc), 'spending stats count delivered spending, net of any shortfall');
+  if (tgt.successRate < 1) lt(tgt.spending.p10Min, pi.desiredRetirementIncome, 'so a target that sometimes fails shows a leaner year than its target');
+  ok(/rand = seededRandom\(seed\);/.test(workerSrc) && /guardrails: \{ enabled: false \}/.test(workerSrc),
+    'the stream is reset per strategy, and Monte Carlo’s own guardrail test switch is off');
+
+  // The panel.
+  ok(/window\.PlannerCompareWorker = makePlannerWorker\(\);/.test(html), 'the comparison has its own worker, so cancelling it cannot stop the tab’s simulation');
+  ok(/<StrategyComparePanel personalInfo=\{personalInfo\}/.test(jsx), 'Will it last? shows the comparison');
+  ok(/const COMPARE_MAX_SIMS = 500;/.test(jsx) && /Math\.min\(COMPARE_MAX_SIMS, simSettings\.numSimulations/.test(jsx), 'capped at 500 simulations a strategy');
+  ok(/const stale = state\.result && state\.key !== runKey;/.test(jsx), 'and says when the plan has changed since it ran');
+  ['Money lasts', 'First year', 'Spending range', 'Leanest year', 'Lifetime spending', 'Left at the end'].forEach(h =>
+    ok(jsx.includes(`>${h}<`), `with a ${h} column`));
+  ok(/mine && <span[^>]*>your plan<\/span>/.test(jsx), 'marking the plan’s own strategy');
+}
+
 // ── Summary ──────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(60)}`);
 if (fail === 0) {

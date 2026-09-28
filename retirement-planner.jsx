@@ -8358,6 +8358,151 @@ function MonteCarloTab({ accounts, assets, currentYearReturn, detailLevel, incom
           <p className="text-sm">The simulation will test {simSettings.numSimulations.toLocaleString()} random scenarios</p>
         </div>
       )}
+
+      <StrategyComparePanel personalInfo={personalInfo} accounts={accounts} incomeStreams={incomeStreams}
+        assets={assets} oneTimeEvents={oneTimeEvents} recurringExpenses={recurringExpenses}
+        simSettings={simSettings} currentYearReturn={currentYearReturn} />
+    </div>
+  );
+}
+
+// ============================================
+// StrategyComparePanel — every withdrawal strategy, on the same markets
+// ============================================
+// Runs the tab's simulation once per strategy (worker job 'strategyCompare'),
+// on identical market paths, so the rows differ by strategy and not by luck.
+// Capped at 500 simulations a strategy: seven full runs of a thousand would
+// keep a reader waiting for a precision the comparison does not need.
+const COMPARE_MAX_SIMS = 500;
+function StrategyComparePanel({ personalInfo, accounts, incomeStreams, assets, oneTimeEvents, recurringExpenses,
+                                simSettings, currentYearReturn }) {
+  const [state, setState] = useState({ running: false, progress: 0, result: null, error: null, key: null });
+  const jobRef = useRef(null);
+  const sims = Math.min(COMPARE_MAX_SIMS, simSettings.numSimulations || COMPARE_MAX_SIMS);
+  const runKey = JSON.stringify([personalInfo, accounts, incomeStreams, assets, oneTimeEvents, recurringExpenses,
+    simSettings, currentYearReturn]);
+  const W = typeof window !== 'undefined' ? (window.PlannerCompareWorker || window.PlannerWorker) : null;
+  const run = () => {
+    if (!W) { setState(s => ({ ...s, error: 'Worker not available — reload the page.' })); return; }
+    setState({ running: true, progress: 0, result: null, error: null, key: runKey });
+    const handle = W.run({
+      type: 'strategyCompare',
+      payload: { personalInfo, accounts, incomeStreams, assets, oneTimeEvents, recurringExpenses, currentYearReturn,
+                 simSettings: { ...simSettings, numSimulations: sims } },
+      onProgress: (pct) => setState(s => (jobRef.current === handle ? { ...s, progress: pct } : s)),
+    });
+    jobRef.current = handle;
+    handle.promise
+      .then(result => { if (jobRef.current === handle) { jobRef.current = null; setState(s => ({ ...s, running: false, result })); } })
+      .catch(err => { if (jobRef.current === handle) { jobRef.current = null; setState(s => ({ ...s, running: false, error: err.message === 'Cancelled' ? null : err.message })); } });
+  };
+  const cancel = () => { if (W && W.cancel) W.cancel(); jobRef.current = null; setState(s => ({ ...s, running: false, progress: 0 })); };
+  useEffect(() => () => { if (jobRef.current && W && W.cancel) W.cancel(); }, []);
+
+  const planStrategy = PlannerEngine.withdrawalStrategyOf(personalInfo);
+  const rows = (state.result && state.result.rows) || [];
+  const stale = state.result && state.key !== runKey;
+  const best = (f, dir = 1) => {
+    const vals = rows.map(f).filter(Number.isFinite);
+    return vals.length ? (dir > 0 ? Math.max(...vals) : Math.min(...vals)) : null;
+  };
+  const bestSuccess = best(r => r.successRate);
+  const bestTotal = best(r => r.spending && r.spending.medianTotal);
+  const bestLow = best(r => r.spending && r.spending.p10Min);
+  const scale = Math.max(1, ...rows.map(r => (r.spending ? r.spending.medianFirst : 0)));
+  const label = (id) => (WITHDRAWAL_STRATEGY_CHOICES.find(c => c.id === id) || {}).label || id;
+  const k = (v) => (Number.isFinite(v) ? formatCurrency(Math.round(v / 1000) * 1000) : '—');
+
+  return (
+    <div className={cardStyle} data-tour="strategy-compare">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-2">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-100">Compare withdrawal strategies</h3>
+          <p className="text-sm text-slate-400 mt-1 max-w-3xl">
+            All seven strategies through the same {sims.toLocaleString()} simulated markets, with the settings above.
+            Every row meets exactly the same markets, so the differences are the strategy’s, not luck’s. Spending is in
+            today’s dollars and counts what was actually paid — a run that ran out shows its lean years.
+          </p>
+        </div>
+        {state.running ? (
+          <button onClick={cancel} className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded font-medium transition-colors">
+            ⏹ Cancel ({state.progress}%)
+          </button>
+        ) : (
+          <button onClick={run} className={buttonPrimary}>
+            {state.result ? (stale ? '↻ Compare again — plan changed' : '↻ Compare again') : '⚖️ Compare all seven'}
+          </button>
+        )}
+      </div>
+
+      {state.error && <p className="text-sm text-red-400 mt-2">Could not compare: {state.error}</p>}
+
+      {rows.length > 0 && (
+        <div className={`overflow-x-auto mt-3 ${stale ? 'opacity-60' : ''}`}>
+          {stale && <p className="text-xs text-amber-400 mb-2">Your plan or the settings above changed since this ran — compare again to update it.</p>}
+          <table className="w-full text-sm tabular-nums">
+            <thead>
+              <tr className="text-xs text-slate-500 border-b border-slate-700/60">
+                <th className="text-left py-2 px-2 font-medium">Strategy</th>
+                <th className="text-right py-2 px-2 font-medium">Money lasts</th>
+                <th className="text-right py-2 px-2 font-medium">First year</th>
+                <th className="text-left py-2 px-2 font-medium min-w-[160px]">Spending range<span className="block font-normal text-[10px] text-slate-600">worst-10% low · median low · first year</span></th>
+                <th className="text-right py-2 px-2 font-medium">Leanest year<span className="block font-normal text-[10px] text-slate-600">worst 10%</span></th>
+                <th className="text-right py-2 px-2 font-medium">Lifetime spending<span className="block font-normal text-[10px] text-slate-600">median</span></th>
+                <th className="text-right py-2 px-2 font-medium">Left at the end<span className="block font-normal text-[10px] text-slate-600">median</span></th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(r => {
+                const sp = r.spending || {};
+                const mine = r.strategy === planStrategy;
+                const pct = (v) => `${Math.max(0, Math.min(100, (v / scale) * 100))}%`;
+                return (
+                  <tr key={r.strategy} className={`border-b border-slate-700/40 ${mine ? 'bg-slate-700/40' : ''}`}>
+                    <td className="py-2 px-2 text-slate-200 whitespace-nowrap">
+                      {label(r.strategy)}
+                      {mine && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-500/50 text-emerald-300 align-middle">your plan</span>}
+                    </td>
+                    <td className={`py-2 px-2 text-right ${r.successRate === bestSuccess ? 'text-emerald-400 font-semibold' : r.successRate < 0.75 ? 'text-red-400' : 'text-slate-200'}`}>
+                      {(r.successRate * 100).toFixed(0)}%
+                    </td>
+                    <td className="py-2 px-2 text-right text-slate-200">{k(sp.medianFirst)}</td>
+                    <td className="py-2 px-2">
+                      {/* A range bar: from the worst-10% leanest year to the first
+                          year, with a tick at the median simulation's leanest. */}
+                      <div className="relative h-3 rounded bg-slate-700/40"
+                           title={`Worst-10% leanest ${k(sp.p10Min)} · median leanest ${k(sp.medianMin)} · first year ${k(sp.medianFirst)}`}>
+                        <div className="absolute top-0 bottom-0 rounded" style={{ left: pct(sp.p10Min || 0), width: `calc(${pct(sp.medianFirst || 0)} - ${pct(sp.p10Min || 0)})`, background: THEME.focus, opacity: 0.45 }} />
+                        <div className="absolute top-[-2px] bottom-[-2px] w-0.5" style={{ left: pct(sp.medianMin || 0), background: THEME.inkPrimary }} />
+                      </div>
+                    </td>
+                    <td className={`py-2 px-2 text-right ${sp.p10Min === bestLow ? 'text-emerald-400 font-semibold' : 'text-slate-200'}`}>{k(sp.p10Min)}</td>
+                    <td className={`py-2 px-2 text-right ${sp.medianTotal === bestTotal ? 'text-emerald-400 font-semibold' : 'text-slate-200'}`}>{k(sp.medianTotal)}</td>
+                    <td className="py-2 px-2 text-right text-slate-200">{k(r.endMedianReal)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="text-xs text-slate-500 mt-3 space-y-1">
+            <p>
+              <strong className="text-slate-400">Reading it.</strong> “Money lasts” is the share of runs the portfolio
+              funded to the end. A strategy that cuts spending when markets fall almost always lasts — its cost shows in
+              the leanest year instead. A $0 leanest year means those runs ran out of money in a year whose costs —
+              care, above all — took all the income that was left. “Lifetime spending” adds up everything each run let
+              you spend; “left at the end” is what heirs would receive. Best in each column is in green.
+            </p>
+            <p>
+              To use one, choose it at About you → Withdrawal strategy, or try it on the Dashboard’s What if… box first.
+              Your spending target and your Guyton-Klinger settings are used by their rows; the other strategies use their
+              research defaults unless you have set them.
+            </p>
+          </div>
+        </div>
+      )}
+      {!rows.length && !state.running && !state.error && (
+        <p className="text-xs text-slate-500 mt-2">Takes about as long as seven small simulations — usually under a minute.</p>
+      )}
     </div>
   );
 }
