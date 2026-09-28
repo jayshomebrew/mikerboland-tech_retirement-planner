@@ -181,7 +181,12 @@ function runMonteCarlo(jobId, payload) {
   const mcGuard = (simSettings.guardrails && simSettings.guardrails.enabled)
     ? { bandPct: simSettings.guardrails.bandPct ?? 0.20, adjustPct: simSettings.guardrails.adjustPct ?? 0.10 }
     : null;
-  let guardrails = E.resolveSpendingRule(piWithLifeExp, mcGuard ? { spendingRule: mcGuard } : {});
+  // A withdrawal-led strategy (4% rule, fixed %, RMD, Vanguard, VPW) decides
+  // spending itself, so guardrails never run on top of it — the engine ignores
+  // them, and the stats would describe a rule that did not run.
+  const strategy = E.withdrawalStrategyOf(piWithLifeExp);
+  let guardrails = E.WITHDRAWAL_LED.has(strategy) ? null
+    : E.resolveSpendingRule(piWithLifeExp, mcGuard ? { spendingRule: mcGuard } : {});
   // The 'schedule' target is the plan's own expected path, the same for every
   // simulation — so it is measured once here rather than once per simulation.
   // Except when a simulation's own plan differs from it (sampled lifespans move
@@ -194,6 +199,12 @@ function runMonteCarlo(jobId, payload) {
     guardrails = { ...guardrails, targetRates: E.guardrailTargetRates(expected, piWithLifeExp) };
   }
   const gCutYears = [], gMinMult = [], gEndMult = [];
+  // What each simulation SPENT, in today's dollars, from the first simulated
+  // retirement year: its first year, its lowest, and its last. Under a
+  // variable strategy the portfolio rarely runs dry — a fixed percentage never
+  // does — so the risk shows up here, as a year the budget shrinks, not in the
+  // success rate.
+  const sFirst = [], sMin = [], sEnd = [];
 
   const isHistorical = simSettings.method === 'historical';
   let historicalStartYears = null;
@@ -339,6 +350,7 @@ function runMonteCarlo(jobId, payload) {
     // this sim's own cumulative inflation to get today's dollars, which is the
     // figure a user can actually reason about.
     const path = [];
+    const spendReal = [];
     let cumInflation = 1;
     let ltcCostReal = 0;
     for (let y = 0; y < proj.length; y++) {
@@ -350,7 +362,16 @@ function runMonteCarlo(jobId, payload) {
       if (ltcVary && p.healthcareLTC > 0) ltcCostReal += p.healthcareLTC / cumInflation;
       if (p.myAge >= simSettings.startAge) {
         path.push({ age: p.myAge, portfolio: p.totalPortfolio, real: p.totalPortfolio / cumInflation });
+        if (p.myAge >= piForSim.myRetirementAge && (p.primaryAlive !== false || p.spouseAlive !== false)) {
+          spendReal.push((p.desiredIncome || 0) / cumInflation);
+        }
       }
+    }
+
+    if (spendReal.length) {
+      sFirst.push(spendReal[0]);
+      sMin.push(Math.min(...spendReal));
+      sEnd.push(spendReal[spendReal.length - 1]);
     }
 
     // Guardrail spending-path stats for this sim (cuts, trough, ending level).
@@ -512,6 +533,20 @@ function runMonteCarlo(jobId, payload) {
     };
   }
 
+  // Spending across simulations, in today's dollars.
+  let spendingStats = null;
+  if (sFirst.length) {
+    const q = (a, f) => { const x = [...a].sort((m, n) => m - n); return x[Math.min(x.length - 1, Math.floor(x.length * f))]; };
+    spendingStats = {
+      strategy,
+      medianFirst: q(sFirst, 0.5),
+      medianMin: q(sMin, 0.5),
+      p10Min: q(sMin, 0.10),
+      medianEnd: q(sEnd, 0.5),
+      p10End: q(sEnd, 0.10),
+    };
+  }
+
   let historicalSummary = null;
   if (isHistorical && simSettings.historicalStartYear === 'all') {
     const byYear = new Map();
@@ -579,6 +614,7 @@ function runMonteCarlo(jobId, payload) {
       historicalStartYearSetting: simSettings.historicalStartYear,
       guardrailsEnabled: !!guardrails,
       guardrailStats,
+      spendingStats,
     },
   });
 }

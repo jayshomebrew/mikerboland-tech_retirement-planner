@@ -3416,7 +3416,7 @@ const REAL_DOLLAR_FIELDS = [
   'bracketFillRoom', 'bracketFillDraw',
   'annuityIncome', 'annuityExcluded', 'annuityPremium',
   'hsaBalance',
-  'guardrailAdjustment',
+  'guardrailAdjustment', 'strategyDraw',
 ];
 // Objects whose VALUES are money and whose keys are ids or category names.
 const REAL_DOLLAR_MAPS = ['perAccountBalances', 'perAccountContributions', 'recurringExpensesByCategory'];
@@ -8336,6 +8336,14 @@ const DEFAULT_PLAN_INFO = {
   guardrailInflationCapPct: 0.06,// largest inflation raise in one year (0 = no cap)
   guardrailFloorPct: 0,          // never spend below this share of the plan (0 = no floor)
   guardrailTarget: 'schedule',   // 'schedule' = follow the plan's own path; 'classic' = first-year rate
+  // How retirement spending is decided (see WITHDRAWAL STRATEGIES). '' = derived
+  // from the older switch: 'guardrails' when spendingGuardrailsEnabled, else
+  // 'target' — so a plan saved before this field existed keeps its behaviour.
+  withdrawalStrategy: '',
+  strategyRatePct: 0.04,         // constant-dollar, fixed-% and Vanguard: the withdrawal rate
+  vanguardCeilingPct: 0.05,      // Vanguard dynamic spending: largest real rise in a year
+  vanguardFloorPct: 0.025,       // … and largest real fall
+  vpwRealReturn: null,           // VPW: expected real return; null = the plan's own
   spendingPhasesEnabled: false,
   goGoEndAge: 75,                // Last age of the go-go phase (inclusive)
   slowGoEndAge: 85,              // Last age of the slow-go phase (inclusive); no-go after
@@ -8399,10 +8407,13 @@ const activeAdvancedSettings = (pi, fmt = (v) => '$' + Math.round(v).toLocaleStr
     out.push({ key: 'withdrawalPriority', label: 'Pre-tax spending',
       detail: `drawn first, up to the ${pi.withdrawalBracketFill} bracket each year` });
   }
-  if (pi.spendingGuardrailsEnabled) {
+  const strat = withdrawalStrategyOf(pi);
+  if (strat === 'guardrails') {
     const r = guardrailRuleOfPlan(pi);
-    out.push({ key: 'guardrails', label: 'Spending guardrails',
-      detail: `Guyton-Klinger: the withdrawal moves ${Math.round(r.adjustPct * 100)}% when its rate strays ${Math.round(r.bandPct * 100)}% from ${r.target === 'classic' ? 'the first-year rate' : 'the plan\u2019s path'}` });
+    out.push({ key: 'guardrails', label: 'Withdrawal strategy',
+      detail: `Guyton-Klinger guardrails: the withdrawal moves ${Math.round(r.adjustPct * 100)}% when its rate strays ${Math.round(r.bandPct * 100)}% from ${r.target === 'classic' ? 'the first-year rate' : 'the plan\u2019s path'}` });
+  } else if (strat !== 'target') {
+    out.push({ key: 'guardrails', label: 'Withdrawal strategy', detail: withdrawalStrategySummary(pi) });
   }
   if (pi.spendingPhasesEnabled) {
     out.push({ key: 'spendingPhases', label: 'Spending phases',
@@ -8752,12 +8763,23 @@ const sandboxScenario = (base = {}, controls = {}) => {
   // lever edits the plan like the survivor switch does: that way everything
   // that reads the composed plan — the health check's simulations, a saved
   // scenario, "make this the plan" — runs the same rule the page is showing.
+  // The strategy itself, as a what-if: any of WITHDRAWAL_STRATEGIES. Kept in
+  // step with the older guardrail flag so either field reads the same plan.
+  if (typeof controls.withdrawalStrategy === 'string' && WITHDRAWAL_STRATEGIES.includes(controls.withdrawalStrategy)
+      && controls.withdrawalStrategy !== withdrawalStrategyOf(pi)) {
+    moved.push({ kind: 'note', name: 'Withdrawal strategy', field: '',
+                 from: withdrawalStrategyOf(pi), to: controls.withdrawalStrategy });
+    pi = { ...pi, withdrawalStrategy: controls.withdrawalStrategy,
+           spendingGuardrailsEnabled: controls.withdrawalStrategy === 'guardrails' };
+  }
   if (typeof controls.spendingGuardrails === 'boolean') {
     if (controls.spendingGuardrails !== !!pi.spendingGuardrailsEnabled) {
       moved.push({ kind: 'note', name: 'Spending guardrails', field: '',
                    from: pi.spendingGuardrailsEnabled ? 'on' : 'off', to: controls.spendingGuardrails ? 'on' : 'off' });
     }
-    pi = { ...pi, spendingGuardrailsEnabled: controls.spendingGuardrails };
+    pi = { ...pi, spendingGuardrailsEnabled: controls.spendingGuardrails,
+           withdrawalStrategy: controls.spendingGuardrails ? 'guardrails'
+             : (withdrawalStrategyOf(pi) === 'guardrails' ? 'target' : pi.withdrawalStrategy) };
     if (Number.isFinite(controls.guardrailBandPct)) pi.guardrailBandPct = controls.guardrailBandPct;
     if (Number.isFinite(controls.guardrailAdjustPct)) pi.guardrailAdjustPct = controls.guardrailAdjustPct;
   }
@@ -9086,6 +9108,114 @@ const streamPartialYear = (stream, ownerAge, pi = {}) => {
   return plain;
 };
 
+// ── WITHDRAWAL STRATEGIES ────────────────────────────────────────────────────
+// How much a retiree takes from the portfolio each year. Two families:
+//
+// SPENDING-LED — the plan states what it spends and the engine finds the
+// withdrawal that funds it, taxes included:
+//   'target'     the plan's spending target, rising with inflation. The default.
+//   'guardrails' that target, moved by Guyton-Klinger's decision rules (see
+//                GUARDRAILS below).
+//
+// WITHDRAWAL-LED — the strategy sets the GROSS withdrawal, as the research
+// defines each rule, and spending is whatever that withdrawal and the plan's
+// other income buy once tax is paid. The plan's modelled costs — healthcare and
+// long-term care, Medicare surcharges, recurring expense items and dated one-time
+// expenses — are paid ON TOP of that budget, exactly as they sit on top of a
+// spending target. So "spending" means the same thing under every strategy, and
+// a year of nursing care does not read as a year the strategy spent nothing.
+//   'constant' Bengen, "Determining Withdrawal Rates Using Historical Data",
+//              J. Financial Planning, Oct 1994 — the "4% rule": the first year
+//              takes the rate times the portfolio; every later year takes the
+//              same dollars raised by inflation, whatever markets do.
+//   'percent'  A fixed percentage of the portfolio each year. Never runs out;
+//              spending moves with markets one for one.
+//   'rmd'      Sun & Webb, "Should Households Base Asset Decumulation Strategies
+//              on Required Minimum Distribution Tables?", Center for Retirement
+//              Research, 2012: withdraw the portfolio divided by the IRS Uniform
+//              Lifetime divisor for the owner's age. The table starts at 72; below
+//              it the divisor is extended back at the table's own slope (0.9 a
+//              year), so the rule starts low and rises — its known shape.
+//   'vanguard' Vanguard's dynamic spending rule (Jaconetti, DiJoseph, Kinniry &
+//              Zilbering, "From assets to income", Vanguard Research, 2020): the
+//              rate times the portfolio, but the real change from last year is
+//              held between a ceiling (+5%) and a floor (−2.5%).
+//   'vpw'      Bogleheads' variable percentage withdrawal: the payment that would
+//              spend the portfolio evenly (in real terms) to age 100, as the
+//              Bogleheads tables do — or to the plan's last projected year if
+//              that is later (a younger spouse can carry it past the planning
+//              age) — at an expected real return: an annuity recomputed each
+//              year on the actual balance. Age 100 is the method's own margin
+//              for a long life and for late costs the payment does not see.
+const VPW_PAYOUT_AGE = 100;   // Bogleheads' VPW spends down to age 100
+const WITHDRAWAL_STRATEGIES = ['target', 'guardrails', 'constant', 'percent', 'rmd', 'vanguard', 'vpw'];
+const WITHDRAWAL_LED = new Set(['constant', 'percent', 'rmd', 'vanguard', 'vpw']);
+const withdrawalStrategyOf = (pi = {}) => (WITHDRAWAL_STRATEGIES.includes(pi.withdrawalStrategy)
+  ? pi.withdrawalStrategy : (pi.spendingGuardrailsEnabled ? 'guardrails' : 'target'));
+// The RMD rule's divisor: the Uniform Lifetime Table from 72, extended below it.
+const rmdStrategyDivisor = (age) => {
+  if (age >= 72) return RMD_FACTORS[Math.min(120, Math.floor(age))] || 1.9;
+  return RMD_FACTORS[72] + (72 - age) * 0.9;
+};
+// The VPW payment rate: an annuity over n years at real return r.
+const vpwRate = (years, realReturn) => {
+  const n = Math.max(1, Math.round(years));
+  const r = Number.isFinite(realReturn) ? realReturn : 0;
+  if (Math.abs(r) < 1e-6) return 1 / n;
+  return r / (1 - Math.pow(1 + r, -n));
+};
+// One year's gross withdrawal under a withdrawal-led strategy. `start` is the
+// liquid portfolio at the start of the year; `prev` is last year's strategy
+// withdrawal (null in the first retirement year); `infl` this year's inflation.
+const strategyWithdrawal = (strategy, pi, { start, prev, infl, age, realReturn, endAge }) => {
+  if (!(start > 0)) return 0;
+  const rate = clampNum(pi.strategyRatePct, 0.005, 0.2, 0.04);
+  switch (strategy) {
+    case 'constant':
+      return prev === null ? rate * start : Math.min(start, prev * (1 + infl));
+    case 'percent':
+      return rate * start;
+    case 'rmd':
+      return Math.min(start, start / rmdStrategyDivisor(age));
+    case 'vanguard': {
+      const target = rate * start;
+      if (prev === null) return target;
+      const up = clampNum(pi.vanguardCeilingPct, 0, 0.5, 0.05);
+      const down = clampNum(pi.vanguardFloorPct, 0, 0.5, 0.025);
+      const real = prev * (1 + infl);
+      return Math.min(start, Math.max(real * (1 - down), Math.min(real * (1 + up), target)));
+    }
+    case 'vpw': {
+      // One year past the planning age, so the planning age itself still ends
+      // with a balance: a plan that spends its last dollar in its last year is
+      // indistinguishable, to a simulation, from one that ran out.
+      // Bogleheads' VPW tables pay out to age 100, leaving a margin for a long
+      // life and for late costs (care, above all) that the payment does not see.
+      // A plan that runs past 100 pays out to its own end.
+      const horizon = Math.max(VPW_PAYOUT_AGE, Number.isFinite(endAge) ? endAge : (pi.legacyAge || MAX_AGE));
+      const years = horizon - age + 2;
+      return Math.min(start, start * vpwRate(years, realReturn));
+    }
+    default: return null;
+  }
+};
+
+// One line saying what a plan's strategy does, in words, for the plan summary
+// and anywhere else that has to name it.
+const withdrawalStrategySummary = (pi = {}) => {
+  const pct = (v) => `${Math.round(v * 1000) / 10}%`;
+  const rate = clampNum(pi.strategyRatePct, 0.005, 0.2, 0.04);
+  switch (withdrawalStrategyOf(pi)) {
+    case 'constant': return `${pct(rate)} of the portfolio in the first retirement year, then the same dollars plus inflation (Bengen's 4% rule)`;
+    case 'percent': return `${pct(rate)} of the portfolio each year`;
+    case 'rmd': return 'the portfolio divided by the IRS life-expectancy divisor for your age';
+    case 'vanguard': return `${pct(rate)} of the portfolio, moving at most +${pct(clampNum(pi.vanguardCeilingPct, 0, 0.5, 0.05))} / −${pct(clampNum(pi.vanguardFloorPct, 0, 0.5, 0.025))} a year after inflation (Vanguard dynamic spending)`;
+    case 'vpw': return 'an annuity-style payment that spends the portfolio evenly to age 100 (variable percentage withdrawal)';
+    case 'guardrails': return 'your spending target, adjusted by Guyton-Klinger guardrails';
+    default: return 'your spending target, rising with inflation';
+  }
+};
+
 // ── GUARDRAILS: GUYTON-KLINGER DECISION RULES ────────────────────────────────
 // Guyton & Klinger, "Decision Rules and Maximum Initial Withdrawal Rates",
 // Journal of Financial Planning, March 2006 (building on Guyton 2004). Their
@@ -9168,7 +9298,7 @@ const resolveSpendingRule = (pi = {}, opts = {}) => {
       ...(o.initialWithdrawalRate > 0 ? { initialWithdrawalRate: o.initialWithdrawalRate } : {}),
     };
   }
-  return pi.spendingGuardrailsEnabled ? guardrailRuleOfPlan(pi) : null;
+  return withdrawalStrategyOf(pi) === 'guardrails' ? guardrailRuleOfPlan(pi) : null;
 };
 // The withdrawal portion a guardrail acts on: what left the portfolio to be
 // spent (an excess RMD is forced out and reinvested, so it is not spending).
@@ -9200,7 +9330,17 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
   // Guyton-Klinger guardrails — see GUARDRAILS above. From the plan
   // (pi.spendingGuardrailsEnabled) unless opts.spendingRule overrides it: an
   // object switches them on (Monte Carlo's own test, a what-if), false off.
-  const spendingRule = resolveSpendingRule(pi, opts);
+  // A withdrawal-led strategy decides spending itself, so guardrails never run
+  // on top of one (a Monte Carlo test switch included).
+  const strategy = withdrawalStrategyOf(pi);
+  const withdrawalLed = WITHDRAWAL_LED.has(strategy);
+  const spendingRule = withdrawalLed ? null : resolveSpendingRule(pi, opts);
+  let strategyPrevDraw = null;   // last year's strategy withdrawal
+  // The plan's last projected age (in the primary's years) — past the planning
+  // age when a younger spouse outlives it. VPW spends down to it, and
+  // Guyton-Klinger's "no cuts in the final years" counts back from it.
+  const planEndAge = (pi.myAge || 0) + getPlanningHorizonYears(pi);
+  let strategyRealReturn = null; // VPW's expected real return, fixed at retirement
   // ── CONVERSION GUARDRAIL ────────────────────────────────────────────────────
   // The spending guardrail below throttles what you SPEND when the portfolio
   // falls behind. This does the same for what you CONVERT, and for a sharper
@@ -9520,7 +9660,7 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
       const planned = wPrev * (1 + raise);
       guardrailRate = planned / start;
       if (guardrailTargetRate !== null) {
-        const yearsLeft = (pi.legacyAge || MAX_AGE) - myAge;
+        const yearsLeft = planEndAge - myAge;
         if (guardrailRate > guardrailTargetRate * (1 + spendingRule.bandPct)) {
           // Capital preservation: not in the final years of the plan.
           if (yearsLeft >= spendingRule.sunsetYears) {
@@ -9538,9 +9678,30 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
       const floor = (spendingRule.floorPct || 0) * planSpending;
       if (planSpending + guardrailAdjustment < floor) guardrailAdjustment = floor - planSpending;
     }
-    const desiredIncome = spendingRule
+    // `let`: a withdrawal-led strategy replaces it, once the withdrawal's net is
+    // known (see the solver).
+    let desiredIncome = spendingRule
       ? Math.max(0, planSpending + guardrailAdjustment) : planSpending;
     guardrailMultiplier = planSpending > 0 ? desiredIncome / planSpending : 1;
+
+    // ── WITHDRAWAL-LED STRATEGY: this year's gross withdrawal ─────────────────
+    let strategyDraw = null;
+    if (withdrawalLed && myAge >= pi.myRetirementAge && householdAlive) {
+      const startBal = prevYearRow ? prevYearRow.totalPortfolio
+        : accts.reduce((sum, a) => sum + ((isPreTaxAccount(a.type) || isRothAccount(a.type)
+            || isBrokerageAccount(a.type) || isHSAAccount(a.type)) ? Math.max(0, accountBalances[a.id] || 0) : 0), 0);
+      const infl = yearsFromNow > 0 && inflationFactors[yearsFromNow] && inflationFactors[yearsFromNow - 1]
+        ? inflationFactors[yearsFromNow] / inflationFactors[yearsFromNow - 1] - 1 : (pi.inflationRate ?? 0.03);
+      if (strategyRealReturn === null) {
+        // VPW's return: the plan's own, fixed at retirement so a simulation's
+        // good or bad year cannot move the assumption it is judged against.
+        strategyRealReturn = Number.isFinite(pi.vpwRealReturn) ? pi.vpwRealReturn
+          : ((prevYearRow && Number.isFinite(prevYearRow.weightedCAGR) ? prevYearRow.weightedCAGR : 0.06) - (pi.inflationRate ?? 0.03));
+      }
+      strategyDraw = strategyWithdrawal(strategy, pi, {
+        start: startBal, prev: strategyPrevDraw, infl, age: myAge, realReturn: strategyRealReturn, endAge: planEndAge });
+      strategyPrevDraw = strategyDraw;
+    }
     
     // ── ANNUITY PURCHASES ──────────────────────────────────────────────────────
     // At the owner's purchase age the premium leaves the chosen account type
@@ -10242,7 +10403,7 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
       //  - still working: only the dated expense that pausing contributions could
       //    not absorb. Salary is NOT netted here — it is already spoken for by
       //    ordinary living, which this engine does not model as a line item.
-      const afterTaxGap = isRetired
+      let afterTaxGap = isRetired
         ? Math.max(0, adjustedDesiredIncome + estimatedIRMAA - netCurrentIncome)
         : preRetirementDrawNeed;
       
@@ -10267,7 +10428,7 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
       // prices its room from the pre-tax already withdrawn and simply fills the
       // rest. The room is sized once here, before the solver, so the solver
       // and the executor draw against the same figure.
-      const fillBracket = isRetired && afterTaxGap > 0 ? String(pi.withdrawalBracketFill || '') : '';
+      const fillBracket = isRetired && (afterTaxGap > 0 || strategyDraw !== null) ? String(pi.withdrawalBracketFill || '') : '';
       const bracketFillRoom = fillBracket ? ordinaryBracketRoom(fillBracket, {
         filingStatus: effectiveFilingStatus, taxIndexYears, inflationRate: pi.inflationRate, inflationFactor,
         // QCD dollars are excluded from income; the RMD-funded share is the only
@@ -10387,21 +10548,11 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
         return { preTax, gains, penalized, hsaNonQual };
       };
 
-      // Iteratively calculate the right withdrawal to hit desired net income
-      // This properly accts for actual marginal tax rates, QCD benefits,
-      // and the circular dependency where withdrawals affect SS taxation
-      let withdrawalNeeded = 0;
-      // How many passes the solver used. It stops at $10 or after
-      // MAX_ITERATIONS_FOR_TAX_CALC; the residual itself is measured on the
-      // delivered figure just before the row is pushed (see deliveredNet), not
-      // on the loop's estimate, because the two can disagree.
-      solverIterations = 0;
-      if (afterTaxGap > 0) {
-        let testWithdrawal = afterTaxGap; // Start with the gap
-        // The previous pass, for the secant step below.
-        let prevWithdrawal = null, prevNet = null;
-        
-        for (let i = 0; i < MAX_ITERATIONS_FOR_TAX_CALC; i++) { // Iterate to converge
+      // What a gross draw of `testWithdrawal` delivers this year once its own taxes
+      // are paid (and any IRMAA-tier or ACA-credit movement it causes). The
+      // spending-led solver below searches for the draw whose net meets the gap;
+      // a withdrawal-led strategy asks it once, for the draw it has chosen.
+      const netFromDraw = (testWithdrawal) => {
           // Estimate the ACTUAL draw composition for this test withdrawal by simulating the
           // withdrawal priority against current balances (see estimateDrawComposition above).
           // This replaces the old fixed guess (100% pre-tax if pre-tax-first, else 70%), which
@@ -10502,7 +10653,38 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
 
           // Net income from this withdrawal (after taxes, IRMAA tier crossings,
           // and ACA subsidy movement)
-          const netFromWithdrawal = testWithdrawal - withdrawalTax - iterIRMAADelta - iterACADelta;
+        return testWithdrawal - withdrawalTax - iterIRMAADelta - iterACADelta;
+      };
+
+      // A withdrawal-led strategy has already chosen the draw. What it nets, with
+      // the plan's other income, is the year's spending. The gap is then
+      // re-stated so the solver below lands on the chosen draw plus whatever the
+      // plan's modelled costs (healthcare, care, IRMAA, recurring and one-time
+      // expenses) add on top of it — the same place they sit under a target.
+      if (strategyDraw !== null && isRetired) {
+        desiredIncome = Math.max(0, netFromDraw(strategyDraw) + netCurrentIncome);
+        afterTaxGap = Math.max(0, desiredIncome + oneTimeExpenseTotal + healthcareExpense
+          + totalRecurringExpenses + estACANetPremium + estimatedIRMAA - netCurrentIncome);
+      }
+
+      // Iteratively calculate the right withdrawal to hit desired net income
+      // This properly accts for actual marginal tax rates, QCD benefits,
+      // and the circular dependency where withdrawals affect SS taxation
+      let withdrawalNeeded = 0;
+      // How many passes the solver used. It stops at $10 or after
+      // MAX_ITERATIONS_FOR_TAX_CALC; the residual itself is measured on the
+      // delivered figure just before the row is pushed (see deliveredNet), not
+      // on the loop's estimate, because the two can disagree.
+      solverIterations = 0;
+      if (afterTaxGap > 0) {
+        // Start with the gap — or, under a withdrawal-led strategy, at the draw it
+        // chose, which the solver then only moves for a one-time expense.
+        let testWithdrawal = (strategyDraw !== null && isRetired) ? strategyDraw : afterTaxGap;
+        // The previous pass, for the secant step below.
+        let prevWithdrawal = null, prevNet = null;
+        
+        for (let i = 0; i < MAX_ITERATIONS_FOR_TAX_CALC; i++) { // Iterate to converge
+          const netFromWithdrawal = netFromDraw(testWithdrawal);
           
           // How far off are we?
           const shortfall = afterTaxGap - netFromWithdrawal;
@@ -11890,6 +12072,9 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
       guardrailEvent,
       guardrailInflation,
       guardrailAdjustment: spendingRule ? Math.round(guardrailAdjustment) : undefined,
+      // The withdrawal a withdrawal-led strategy chose this year, before the
+      // plan's modelled costs were paid on top of it.
+      strategyDraw: strategyDraw !== null ? Math.round(strategyDraw) : undefined,
       guardrailRate: spendingRule && guardrailRate !== undefined ? guardrailRate : undefined,
       guardrailTargetRate: spendingRule && guardrailTargetRate !== undefined && guardrailTargetRate !== null ? guardrailTargetRate : undefined,
       // Withdrawal solver diagnostics. solverResidual is what the year still
@@ -12398,6 +12583,8 @@ const describePlanPatch = (state, patch) => {
     scaleOwnContributions, addOwnContribution, accountsAtSavingsTarget,
     SAVINGS_FILL_ORDER, savingsBucketOf, employeeDollarsOf, savingsHeadroom,
     GUARDRAIL_DEFAULTS, guardrailRuleOfPlan, resolveSpendingRule, guardrailTargetRates, spendingWithdrawalOf,
+    WITHDRAWAL_STRATEGIES, WITHDRAWAL_LED, withdrawalStrategyOf, strategyWithdrawal, rmdStrategyDivisor, vpwRate,
+    withdrawalStrategySummary,
     fillSavingsToTarget, drainSavingsToTarget, savingsTargetPlan,
     splitBothContributors, BOTH_SPLIT_EMPLOYEE_SHARE,
     taxableGrowthFactor, breakEvenTaxRate, conversionFundingComparison,

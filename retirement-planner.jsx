@@ -585,6 +585,7 @@ const SECTION_MANIFEST = {
     // chose them needs to see how deep the cuts go, not only that the plan lived.
     // It draws only when guardrails ran, so it costs nobody else anything.
     { id: 'guardrails',    label: 'Spending Guardrail Outcomes',   level: 'standard' },
+    { id: 'spending',      label: 'Spending Under Your Strategy',  level: 'standard' },
     { id: 'perYear',       label: 'Per-Year Historical Outcomes',  level: 'advanced' },
     { id: 'bands',         label: 'Portfolio Projection Bands',    level: 'essential' },
     { id: 'paths',         label: 'Sample Simulation Paths',       level: 'standard' },
@@ -7749,14 +7750,22 @@ function MonteCarloTab({ accounts, assets, currentYearReturn, detailLevel, incom
         {/* Dynamic spending guardrails (Guyton-Klinger). When the PLAN has them
             on, every simulation already runs the plan's rule — the switch here
             is for testing them on a plan that does not, so it steps aside. */}
-        {personalInfo.spendingGuardrailsEnabled ? (
+        {PlannerEngine.WITHDRAWAL_LED.has(PlannerEngine.withdrawalStrategyOf(personalInfo)) ? (
+        <div className="mb-4 p-3 bg-slate-800/40 border border-slate-700/50 rounded-lg text-sm text-slate-300">
+          <span className="text-emerald-400">✓</span> Your withdrawal strategy is{' '}
+          <strong>{(WITHDRAWAL_STRATEGY_CHOICES.find(c => c.id === PlannerEngine.withdrawalStrategyOf(personalInfo)) || {}).label}</strong>:{' '}
+          {PlannerEngine.withdrawalStrategySummary(personalInfo)}. Every simulation below withdraws by it, and spending
+          rises and falls with the markets it meets. “Spending under your strategy” below shows how far.
+          <span className="block text-xs text-slate-500 mt-1">Change it on About you → Withdrawal strategy.</span>
+        </div>
+        ) : PlannerEngine.withdrawalStrategyOf(personalInfo) === 'guardrails' ? (
         <div className="mb-4 p-3 bg-slate-800/40 border border-slate-700/50 rounded-lg text-sm text-slate-300">
           <span className="text-emerald-400">✓</span> Guyton-Klinger spending guardrails are on in your plan, so every
           simulation below adjusts spending by them — cutting the withdrawal
           {' '}{Math.round((personalInfo.guardrailAdjustPct ?? 0.10) * 100)}% when its rate strays
           {' '}{Math.round((personalInfo.guardrailBandPct ?? 0.20) * 100)}% above
           {' '}{personalInfo.guardrailTarget === 'classic' ? 'your first-year rate' : 'your plan’s path'}, raising it after good years.
-          <span className="block text-xs text-slate-500 mt-1">Change them on About you → Spending guardrails.</span>
+          <span className="block text-xs text-slate-500 mt-1">Change them on About you → Withdrawal strategy.</span>
         </div>
         ) : (
         <div className="flex flex-wrap items-center gap-4 mb-4 p-3 bg-slate-800/40 border border-slate-700/50 rounded-lg">
@@ -7794,7 +7803,7 @@ function MonteCarloTab({ accounts, assets, currentYearReturn, detailLevel, incom
               <span className="text-xs text-slate-500 max-w-md">
                 A test of Guyton-Klinger guardrails on this simulation only: when the withdrawal rate strays more than
                 the band from your plan’s path, the withdrawal is cut or raised by the adjust %. Compare success rates
-                with it on and off — and to make it part of your plan, turn it on at About you → Spending guardrails.
+                with it on and off — and to make it part of your plan, choose it at About you → Withdrawal strategy.
               </span>
             </>
           )}
@@ -8121,6 +8130,35 @@ function MonteCarloTab({ accounts, assets, currentYearReturn, detailLevel, incom
           })()}
 
           {/* Guardrail spending outcomes — what flexibility the plan demanded */}
+          {/* Under any strategy but a fixed target, spending moves with markets.
+              What each simulation spent — its first year, its lowest, its last —
+              in today's dollars. For a fixed percentage this is the whole risk:
+              the portfolio never runs dry, the budget does the shrinking. */}
+          {simResults.spendingStats && simResults.spendingStats.strategy !== 'target' && (
+            <Section tab="montecarlo" id="spending" title={<>💵 Spending Under Your Strategy</>} vis={sectionVisibility} level={detailLevel} setVis={setSectionVisibility}>
+              <p className="text-xs text-slate-400 mb-3">
+                What your withdrawal strategy — {(WITHDRAWAL_STRATEGY_CHOICES.find(c => c.id === simResults.spendingStats.strategy) || {}).label} —
+                let you spend each year across the simulations, in today’s dollars — healthcare and recurring costs included.
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                {[['First retirement year (median)', simResults.spendingStats.medianFirst, null],
+                  ['Lowest year (median simulation)', simResults.spendingStats.medianMin, simResults.spendingStats.medianFirst],
+                  ['Lowest year (worst 10%)', simResults.spendingStats.p10Min, simResults.spendingStats.medianFirst],
+                  ['Final year (median)', simResults.spendingStats.medianEnd, simResults.spendingStats.medianFirst]].map(([label, v, ref]) => (
+                  <div key={label} className="bg-slate-800/60 rounded-lg p-3">
+                    <div className="text-xs text-slate-500 mb-1">{label}</div>
+                    <div className={`text-xl font-semibold ${ref && v < ref * 0.7 ? 'text-red-400' : 'text-slate-100'}`}>{formatCurrency(Math.round(v))}</div>
+                    {ref > 0 && <div className="text-xs text-slate-500">{Math.round(v / ref * 100)}% of the first year</div>}
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-slate-500 mt-2">
+                Reading it: the worst-10% low is the leanest year one run in ten had to live through. If you could not live on
+                it, a steadier strategy — or a lower withdrawal rate — trades some spending now for less swing later.
+              </p>
+            </Section>
+          )}
+
           {simResults.guardrailsEnabled && simResults.guardrailStats && (
             <Section tab="montecarlo" id="guardrails" title={<>🛤️ Spending Guardrail Outcomes</>} vis={sectionVisibility} level={detailLevel} setVis={setSectionVisibility}>
               <p className="text-xs text-slate-400 mb-3">
@@ -11835,34 +11873,87 @@ function PersonalInfoTab({ onShowEverything, onOpenTaxPlanning, accounts, dataWa
 
         <HideableBlock tab="personal" id="guardrails" level={detailLevel}
                        vis={sectionVisibility} setVis={setSectionVisibility}>
-        {/* Spending guardrails (Guyton-Klinger). The rules and how the engine
-            carries them are documented at GUARDRAILS in engine.js. */}
+        {/* How retirement spending is decided each year. The strategies and the
+            research behind each are documented at WITHDRAWAL STRATEGIES in
+            engine.js; Guyton-Klinger's rules at GUARDRAILS. */}
         <div className="border-t border-slate-700/50 mt-5 pt-5">
-          <h4 className="text-sm font-semibold text-slate-300 mb-3 uppercase tracking-wide">Spending Guardrails</h4>
-          <label className="flex items-start gap-2 cursor-pointer mb-3">
-            <input
-              type="checkbox"
-              checked={localInfo.spendingGuardrailsEnabled || false}
-              onChange={e => handleChange('spendingGuardrailsEnabled', e.target.checked)}
-              className="w-4 h-4 mt-0.5 rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500/50"
-            />
-            <span className="text-sm text-slate-300">
-              Adjust spending with Guyton-Klinger guardrails
-              <span className="block text-xs text-slate-500 mt-1">
-                Spend more after good markets and less after bad ones, by rule, instead of spending a fixed amount
-                whatever happens. Every screen uses it — the Dashboard, reports, and the Will it last? simulations.
-              </span>
-            </span>
-          </label>
-
-          {localInfo.spendingGuardrailsEnabled && (() => {
+          <h4 className="text-sm font-semibold text-slate-300 mb-1 uppercase tracking-wide">Withdrawal Strategy</h4>
+          <p className="text-xs text-slate-500 mb-3">
+            How much you take each year in retirement. Every screen uses the one you pick — the Dashboard, reports,
+            the plan-health check and the Will it last? simulations — and the What if… box can try the others.
+          </p>
+          {(() => {
+            const strategy = PlannerEngine.withdrawalStrategyOf(localInfo);
+            const setStrategy = (v) => {
+              handleChange('withdrawalStrategy', v);
+              handleChange('spendingGuardrailsEnabled', v === 'guardrails');
+            };
             const pct = (k, d) => Math.round(((localInfo[k] ?? d) * 100) * 10) / 10;
             const setPct = (k, lo, hi) => (e) => {
               const v = Number(e.target.value);
               if (Number.isFinite(v)) handleChange(k, Math.min(hi, Math.max(lo, v)) / 100);
             };
+            const withdrawalLed = PlannerEngine.WITHDRAWAL_LED.has(strategy);
             return (
               <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                  <div>
+                    <label className={compactLabelStyle}>Strategy</label>
+                    <select value={strategy} onChange={e => setStrategy(e.target.value)} className={compactInputStyle}
+                      aria-label="Withdrawal strategy">
+                      {WITHDRAWAL_STRATEGY_CHOICES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                    </select>
+                  </div>
+                  <div className="text-xs text-slate-400 self-end pb-1">
+                    {(WITHDRAWAL_STRATEGY_CHOICES.find(c => c.id === strategy) || {}).what}
+                  </div>
+                </div>
+
+                {['constant', 'percent', 'vanguard'].includes(strategy) && (
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+                    <div>
+                      <label className={compactLabelStyle}>{strategy === 'constant' ? 'First-year withdrawal (% of portfolio)' : 'Withdrawal (% of portfolio each year)'}</label>
+                      <input type="number" min="0.5" max="20" step="0.1" value={pct('strategyRatePct', 0.04)}
+                        onChange={setPct('strategyRatePct', 0.5, 20)} className={compactInputStyle}
+                        aria-label="Withdrawal rate, percent" />
+                      <span className="text-xs text-slate-500">{strategy === 'constant' ? 'Bengen: 4%' : 'Research: 4–5%'}</span>
+                    </div>
+                    {strategy === 'vanguard' && (
+                      <>
+                        <div>
+                          <label className={compactLabelStyle}>Largest rise in a year (% after inflation)</label>
+                          <input type="number" min="0" max="50" step="0.5" value={pct('vanguardCeilingPct', 0.05)}
+                            onChange={setPct('vanguardCeilingPct', 0, 50)} className={compactInputStyle}
+                            aria-label="Largest real rise in a year, percent" />
+                          <span className="text-xs text-slate-500">Vanguard: 5%</span>
+                        </div>
+                        <div>
+                          <label className={compactLabelStyle}>Largest fall in a year (% after inflation)</label>
+                          <input type="number" min="0" max="50" step="0.5" value={pct('vanguardFloorPct', 0.025)}
+                            onChange={setPct('vanguardFloorPct', 0, 50)} className={compactInputStyle}
+                            aria-label="Largest real fall in a year, percent" />
+                          <span className="text-xs text-slate-500">Vanguard: 2.5%</span>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+                {strategy === 'vpw' && (
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+                    <div>
+                      <label className={compactLabelStyle}>Expected real return (%, blank = your plan’s)</label>
+                      <input type="number" min="-2" max="10" step="0.1"
+                        value={Number.isFinite(localInfo.vpwRealReturn) ? Math.round(localInfo.vpwRealReturn * 1000) / 10 : ''}
+                        placeholder="plan"
+                        onChange={e => handleChange('vpwRealReturn', e.target.value === '' ? null : Math.min(10, Math.max(-2, Number(e.target.value))) / 100)}
+                        className={compactInputStyle} aria-label="VPW expected real return, percent" />
+                      <span className="text-xs text-slate-500">Your accounts’ growth minus inflation, if blank</span>
+                    </div>
+                  </div>
+                )}
+
+                {strategy === 'guardrails' && (
+                  <>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
                   <div>
                     <label className={compactLabelStyle}>Guardrail band (± % of target rate)</label>
@@ -11939,6 +12030,27 @@ function PersonalInfoTab({ onShowEverything, onOpenTaxPlanning, accounts, dataWa
                     {' '}The research’s fourth rule, which asset class to sell, is left to your withdrawal order.
                   </p>
                 </div>
+
+                  </>
+                )}
+
+                {withdrawalLed && (
+                  <div className="p-3 bg-slate-800/60 border border-slate-700/50 rounded-lg text-xs text-slate-400 space-y-2">
+                    <p>
+                      <strong className="text-slate-300">What this changes.</strong> The strategy sets how much you
+                      withdraw, and your spending is what that withdrawal and your other income buy after tax — so your
+                      <strong className="text-amber-400"> spending target above is not used in retirement</strong>.
+                      Healthcare and recurring expenses come out of that budget; dated one-time expenses are paid on top of it.
+                    </p>
+                    <p>
+                      {strategy === 'constant'
+                        ? 'The 4% rule never cuts spending, so it can run out: after an early fall in markets the same dollars are a bigger share of a smaller portfolio. Will it last? shows how often.'
+                        : strategy === 'vanguard'
+                          ? 'The floor limits how fast spending can fall, so in a long slump it keeps withdrawing above its target percentage and can run the portfolio down. Will it last? shows how often, and how far spending falls first.'
+                          : 'A percentage of whatever is left never runs out, so the risk shows up differently: as a year your budget shrinks. Will it last? shows how far spending falls in bad markets.'}
+                    </p>
+                  </div>
+                )}
               </>
             );
           })()}
@@ -14074,10 +14186,11 @@ function PlanHealthCard({ plan, opts, currentYearReturn, live, isWhatIf, actions
                           onTrySpending, onTryRetireAge, onOpenWillItLast }) {
   const [solve, setSolve] = useState(null);
   const [mc, setMc] = useState(null);
+  const [spendStats, setSpendStats] = useState(null);
   const planKey = useMemo(() => JSON.stringify([plan, opts || null]), [plan, opts]);
 
   useEffect(() => {
-    setSolve(null); setMc(null);
+    setSolve(null); setMc(null); setSpendStats(null);
     const W = window.PlannerHealthWorker;
     if (!W) return undefined;
     let alive = true;
@@ -14097,6 +14210,7 @@ function PlanHealthCard({ plan, opts, currentYearReturn, live, isWhatIf, actions
             guardrails: { enabled: false, bandPct: 0.20, adjustPct: 0.10 },
             longevity: { enabled: false }, ltc: { enabled: false } } } }).promise;
         if (alive && r && Number.isFinite(r.successRate)) setMc(r.successRate);
+        if (alive && r && r.spendingStats) setSpendStats(r.spendingStats);
       } catch (e) { /* cancelled by a newer edit, or the worker is unavailable */ }
     }, HEALTH_DEBOUNCE_MS);
     return () => { alive = false; clearTimeout(timer); };
@@ -14114,8 +14228,14 @@ function PlanHealthCard({ plan, opts, currentYearReturn, live, isWhatIf, actions
   // What to do about it, most useful first. The plan-level levers come first
   // when there is a gap to close; this year's to-dos fill the rest.
   const spend = plan.pi.desiredRetirementIncome || 0;
+  // Under a withdrawal-led strategy the spending target is not what the plan
+  // spends, so "spend $X less" and "you could spend up to $Y" would be advice
+  // about a number that does nothing. The strategy's own spending is shown
+  // instead, from the same simulations.
+  const strategyId = PlannerEngine.withdrawalStrategyOf(plan.pi);
+  const leadsWithdrawal = PlannerEngine.WITHDRAWAL_LED.has(strategyId);
   const steps = [];
-  if (solve && short.fails && Number.isFinite(solve.spendingEdge) && solve.spendingEdge < spend) {
+  if (!leadsWithdrawal && solve && short.fails && Number.isFinite(solve.spendingEdge) && solve.spendingEdge < spend) {
     const target = roundDownTo(solve.spendingEdge, 500);
     steps.push({ key: 'spend', title: `Spend about ${formatCurrency(spend - target)} less a year`,
       detail: `${formatCurrency(target)} a year in today's dollars funds every year at average returns.`,
@@ -14145,7 +14265,7 @@ function PlanHealthCard({ plan, opts, currentYearReturn, live, isWhatIf, actions
     risk: 'bg-red-500/15 text-red-300 border-red-500/40',
     pending: 'bg-slate-700/40 text-slate-300 border-slate-600',
   }[v.tone];
-  const cushion = solve && !short.fails && Number.isFinite(solve.spendingEdge) ? roundDownTo(solve.spendingEdge, 1000) : null;
+  const cushion = !leadsWithdrawal && solve && !short.fails && Number.isFinite(solve.spendingEdge) ? roundDownTo(solve.spendingEdge, 1000) : null;
 
   return (
     <div className={cardStyle} data-tour="plan-health">
@@ -14162,7 +14282,14 @@ function PlanHealthCard({ plan, opts, currentYearReturn, live, isWhatIf, actions
               — {formatCurrency(cushion - spend)} more than you plan — and still fund every year.
             </p>
           )}
-          {solve && solve.spendingSurvivesRange && !short.fails && (
+          {leadsWithdrawal && spendStats && spendStats.strategy === strategyId && (
+            <p className="text-sm text-slate-400 mt-1">
+              With your withdrawal strategy — {(WITHDRAWAL_STRATEGY_CHOICES.find(c => c.id === strategyId) || {}).label} — you
+              would spend about {formatCurrency(roundDownTo(spendStats.medianFirst, 500))} in your first retirement year, in
+              today’s dollars. In the worst 10% of markets, the leanest year falls to about {formatCurrency(roundDownTo(spendStats.p10Min, 500))}.
+            </p>
+          )}
+          {!leadsWithdrawal && solve && solve.spendingSurvivesRange && !short.fails && (
             <p className="text-sm text-slate-400 mt-1">At average returns it would fund even five times your planned spending.</p>
           )}
         </div>
@@ -14266,11 +14393,20 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
   const planSurvivor = !!personalInfo.survivorModelEnabled;
   const survivorOn = controls.survivorOn === undefined || controls.survivorOn === null
     ? planSurvivor : controls.survivorOn;
-  // A plan setting since v2.59.0 (About you → Spending guardrails), so the
-  // switch starts from the plan and moving it is a what-if like any other.
-  const planGuardrails = !!personalInfo.spendingGuardrailsEnabled;
-  const guardrailsOn = controls.guardrailsOn === undefined || controls.guardrailsOn === null
-    ? planGuardrails : controls.guardrailsOn;
+  // The withdrawal strategy (About you → Withdrawal strategy): the picker
+  // starts from the plan and choosing another is a what-if like any other.
+  // `guardrailsOn` is the on/off switch this replaced (v2.59.0); a scenario
+  // saved with it still reads the same.
+  const planStrategy = PlannerEngine.withdrawalStrategyOf(personalInfo);
+  const legacyGuard = controls.guardrailsOn;
+  const strategyPick = (controls.withdrawalStrategy && PlannerEngine.WITHDRAWAL_STRATEGIES.includes(controls.withdrawalStrategy))
+    ? controls.withdrawalStrategy
+    : typeof legacyGuard === 'boolean'
+      ? (legacyGuard ? 'guardrails' : (planStrategy === 'guardrails' ? 'target' : planStrategy))
+      : planStrategy;
+  const strategyMoved = strategyPick !== planStrategy;
+  const strategyLabel = (id) => (WITHDRAWAL_STRATEGY_CHOICES.find(c => c.id === id) || {}).label || id;
+  const pickLeadsWithdrawal = PlannerEngine.WITHDRAWAL_LED.has(strategyPick);
   const givingPct = personalInfo.charitableGivingPercent || 0;
   const qcdOn = controls.qcdOn === undefined || controls.qcdOn === null ? true : controls.qcdOn;
 
@@ -14462,7 +14598,7 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
     wdOrder !== 'plan' && `${({ pretax: 'pre-tax', brokerage: 'brokerage', roth: 'Roth' })[wdOrder]} first`,
     ltcChoice !== 'plan' && `care: ${({ none: 'none', default: '28 months', stress: '5-yr stress' })[ltcChoice] || ltcChoice}`,
     married && survivorOn !== planSurvivor && `survivor ${survivorOn ? 'on' : 'off'}`,
-    guardrailsOn !== planGuardrails && `guardrails ${guardrailsOn ? 'on' : 'off'}`,
+    strategyMoved && `${strategyLabel(strategyPick)}`,
     givingPct > 0 && !qcdOn && 'no QCD',
   ].filter(Boolean);
 
@@ -14473,7 +14609,7 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
     || claimMe !== planClaimMe || claimSp !== planClaimSp
     || savingsMoved || acctAdjCount > 0 || spend !== planSpend
     || rothOn !== rothConversionIsPlanned(personalInfo)
-    || survivorOn !== planSurvivor || guardrailsOn !== planGuardrails || !qcdOn
+    || survivorOn !== planSurvivor || strategyMoved || !qcdOn
     || convMode !== 'plan' || wdFill !== 'plan' || wdOrder !== 'plan' || ltcChoice !== 'plan'
     || streamAdjCount > 0;
 
@@ -14502,7 +14638,7 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
         withdrawalPriority: wdOrder === 'plan' ? undefined : WD_ORDERS[wdOrder],
         ltcModel: ltcChoice === 'plan' ? undefined : ltcChoice,
         survivorModel: married && survivorOn !== planSurvivor ? survivorOn : undefined,
-        spendingGuardrails: guardrailsOn !== planGuardrails ? guardrailsOn : undefined,
+        withdrawalStrategy: strategyMoved ? strategyPick : undefined,
         qcd: qcdOn ? undefined : false,
         streamAdjustments: streamAdjCount ? streamAdj : undefined,
       });
@@ -14514,7 +14650,7 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
       return { ...sc, proj };
     } catch (e) { return { error: e.message }; }
   }, [touched, myRet, spRet, claimMe, claimSp, savingsRate, spend, rothOn, married,
-      survivorOn, guardrailsOn, planGuardrails, qcdOn, planSurvivor,
+      survivorOn, strategyPick, strategyMoved, qcdOn, planSurvivor,
       convMode, convBracketPick, convTierPick, wdFill, wdOrder, ltcChoice, streamAdj, streamAdjCount,
       acctAdj, acctAdjCount, savingsMoved,
       personalInfo, accounts, incomeStreams, assets, oneTimeEvents, recurringExpenses,
@@ -14863,7 +14999,9 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
           <SandboxSlider label="Spending in retirement (after tax)" value={spend}
                   onChange={v => setControl('spending', v)} min={0}
                   max={Math.max(300000, Math.round((planSpend || 100000) * 2))} step={2500}
-                  planValue={planSpend} format={money} />
+                  planValue={planSpend} format={money}
+                  disabled={pickLeadsWithdrawal}
+                  note={pickLeadsWithdrawal ? `set by the ${strategyLabel(strategyPick)} strategy` : null} />
         </div>
 
         {/* ── Strategy drawer ─────────────────────────────────────────── */}
@@ -14990,15 +15128,20 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
             planLabel={married ? `plan: ${planSurvivor ? 'on' : 'off'}` : 'single filer'}
             note={married ? null : 'nothing to model'} />
 
-          <SandboxSwitch
-            label="Spending guardrails" on={guardrailsOn}
-            onChange={v => setControl('guardrailsOn', v)}
-            planLabel={`plan: ${planGuardrails ? 'on' : 'off'}`}
-            note={guardrailsOn
-              ? (personalInfo.guardrailTarget === 'classic'
-                ? 'Guyton-Klinger, classic: acts on this page too'
-                : 'Guyton-Klinger: acts when markets differ from the plan — see the plan-health check')
-              : null} />
+          <div className="min-w-[220px]">
+            <label className="text-xs text-slate-400 block mb-1.5">Withdrawal strategy</label>
+            <select value={strategyPick}
+              onChange={e => { setControl('withdrawalStrategy', e.target.value); setControl('guardrailsOn', undefined); }}
+              aria-label="Withdrawal strategy"
+              className={`px-2 py-1.5 rounded-lg border text-sm bg-slate-800 ${strategyMoved ? 'border-amber-500/50 text-amber-300' : 'border-slate-600 text-slate-200'}`}>
+              {WITHDRAWAL_STRATEGY_CHOICES.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+            </select>
+            <div className="text-[11px] text-slate-500 mt-1">
+              plan: {strategyLabel(planStrategy)}
+              {strategyPick === 'guardrails' && <span> · acts when markets differ from the plan — see the plan-health check</span>}
+              {pickLeadsWithdrawal && <span> · sets your spending; the slider above steps aside</span>}
+            </div>
+          </div>
 
           <SandboxSwitch
             label="Qualified charitable distributions" on={givingPct > 0 && qcdOn}
@@ -21219,6 +21362,25 @@ const Logo = ({ size = 'large' }) => {
 // Sidebar navigation. At module scope so React keeps one component identity —
 // defined inside RetirementPlanner these were re-created on every render, which
 // remounted the whole sidebar subtree each time any state changed.
+// The seven ways to decide retirement spending, in the order the About you
+// picker lists them. Ids are the engine's WITHDRAWAL_STRATEGIES.
+const WITHDRAWAL_STRATEGY_CHOICES = [
+  { id: 'target', label: 'Spending target (plan default)',
+    what: 'Spend the amount you set, rising with inflation. The plan finds the withdrawal that pays for it.' },
+  { id: 'guardrails', label: 'Guyton-Klinger guardrails',
+    what: 'Your spending target, cut or raised by rule when markets fall behind or run ahead (Guyton & Klinger, 2006).' },
+  { id: 'constant', label: 'The 4% rule (constant dollars)',
+    what: 'Take a set share of the portfolio in the first year, then the same dollars plus inflation every year after (Bengen, 1994).' },
+  { id: 'percent', label: 'Fixed percentage',
+    what: 'Take the same percentage of whatever the portfolio holds each year. Never runs out; spending moves with markets.' },
+  { id: 'rmd', label: 'RMD method (life expectancy)',
+    what: 'Divide the portfolio by the IRS life-expectancy divisor for your age — low at first, rising with age (Sun & Webb, 2012).' },
+  { id: 'vanguard', label: 'Vanguard dynamic spending',
+    what: 'A percentage of the portfolio, with each year’s change held between a ceiling and a floor (Vanguard, 2020).' },
+  { id: 'vpw', label: 'Variable percentage withdrawal (VPW)',
+    what: 'The payment that spends the portfolio evenly to age 100, recomputed on each year’s balance (Bogleheads).' },
+];
+
 // Three stripes of a theme's own colours: its ground, its card and its accent.
 // Painted with inline hex rather than classes, because the point is to show a
 // theme OTHER than the one currently active.

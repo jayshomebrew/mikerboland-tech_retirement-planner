@@ -14039,7 +14039,9 @@ section('P119 — the Sandbox strategy drawer hides controls without hiding thei
   // levers the drawer is responsible for.
   const touchedBlock = /const touched = myRet !== planMyRet([\s\S]*?);\n/.exec(src);
   ok(touchedBlock, 'the touched test is built in one place too');
-  const drawerLevers = ['rothOn', 'convMode', 'wdFill', 'wdOrder', 'ltcChoice', 'survivorOn', 'guardrailsOn', 'qcdOn'];
+  // strategyMoved replaced guardrailsOn in v2.60.0, when the guardrail switch
+  // became a picker over every withdrawal strategy.
+  const drawerLevers = ['rothOn', 'convMode', 'wdFill', 'wdOrder', 'ltcChoice', 'survivorOn', 'strategyMoved', 'qcdOn'];
   drawerLevers.forEach(v => {
     ok(new RegExp('\\b' + v + '\\b').test(touchedBlock ? touchedBlock[1] : ''),
       `${v} counts as a change to the plan`);
@@ -15395,7 +15397,7 @@ section('P133 — the Withdrawals tab is retired: no screen runs a model of its 
   // Four since v2.49.0, when the three "Will it last?" tabs became one.
   ok(/Analysis — four different questions/.test(tour), 'and counts the analysis tabs correctly');
   // The two rules that were worth keeping already live in the engine.
-  ok(/label="Spending guardrails"/.test(jsx), 'guardrails remain, as a Sandbox lever the engine runs');
+  ok(/aria-label="Withdrawal strategy"/.test(jsx), 'guardrails remain — with the other strategies, v2.60.0 — as a What if… lever the engine runs');
   ok(/spendingPhasesEnabled/.test(jsx), 'and spending phases, on Personal Info');
 }
 
@@ -16484,7 +16486,7 @@ section('P147 — Guyton-Klinger guardrails, as the research states them');
 
   // ── Money in today's dollars ─────────────────────────────────────────────
   const eng = fsMod.readFileSync(pathMod.join(ROOT, 'engine.js'), 'utf8');
-  ok(/'guardrailAdjustment',\n\];/.test(eng), 'the spending adjustment is money, so it is restated in today’s dollars');
+  ok(/'guardrailAdjustment', 'strategyDraw',\n\];/.test(eng), 'the spending adjustment is money, so it is restated in today’s dollars');
   ok(!/'guardrailRate'|'guardrailTargetRate'/.test(eng.slice(eng.indexOf('const REAL_DOLLAR_FIELDS'), eng.indexOf('const REAL_DOLLAR_MAPS'))), 'the rates are not');
 
   // ── Every screen runs the plan's rule ────────────────────────────────────
@@ -16510,20 +16512,177 @@ section('P147 — Guyton-Klinger guardrails, as the research states them');
   const vol = { ...flat, numSimulations: 120, stdDev: 0.16 };
   const vOff = job(base, vol), vOn = job(on, vol);
   gt(vOn.successRate, vOff.successRate, 'in volatile markets the plan’s guardrails lift the success rate');
-  ok(/let guardrails = E\.resolveSpendingRule\(piWithLifeExp, mcGuard \? \{ spendingRule: mcGuard \} : \{\}\);/.test(worker),
+  ok(/E\.resolveSpendingRule\(piWithLifeExp, mcGuard \? \{ spendingRule: mcGuard \} : \{\}\);/.test(worker),
     'the simulation takes the plan’s rule, or its own test switch when the plan has none');
+  ok(/E\.WITHDRAWAL_LED\.has\(strategy\) \? null/.test(worker), 'and none under a withdrawal-led strategy, which decides spending itself');
   ok(/!longevity && !ltcVary\)/.test(worker), 'and measures each simulation’s own path when lifespans or care are sampled');
 
   // The app: a plan setting on About you, reflected in Monte Carlo, the
   // what-if and the timeline.
-  ok(/checked=\{localInfo\.spendingGuardrailsEnabled \|\| false\}/.test(jsx), 'About you turns guardrails on for the plan');
+  ok(/handleChange\('spendingGuardrailsEnabled', v === 'guardrails'\);/.test(jsx), 'About you turns guardrails on for the plan, by choosing them as its strategy');
   ['guardrailBandPct', 'guardrailAdjustPct', 'guardrailTarget', 'guardrailSunsetYears', 'guardrailInflationCapPct', 'guardrailFloorPct', 'guardrailInflationRule']
     .forEach(f => ok(jsx.includes(`handleChange('${f}'`) || jsx.includes(`setPct('${f}'`), `and sets ${f}`));
   ok(/Guyton &amp; Klinger, <em>Journal of Financial\s+Planning<\/em>, 2006/.test(jsx), 'citing the research it follows');
-  ok(/personalInfo\.spendingGuardrailsEnabled \? \(/.test(jsx), 'Monte Carlo says when the plan’s own guardrails are running');
-  ok(/const planGuardrails = !!personalInfo\.spendingGuardrailsEnabled;/.test(jsx) && /guardrailsOn !== planGuardrails/.test(jsx),
-    'the what-if switch starts from the plan');
+  ok(/PlannerEngine\.withdrawalStrategyOf\(personalInfo\) === 'guardrails' \? \(/.test(jsx), 'Monte Carlo says when the plan\u2019s own guardrails are running');
+  ok(/const planStrategy = PlannerEngine\.withdrawalStrategyOf\(personalInfo\);/.test(jsx) && /const strategyMoved = strategyPick !== planStrategy;/.test(jsx),
+    'the what-if picker starts from the plan');
   ok(/'Guardrail: withdrawal cut'/.test(jsx) && /'Inflation raise skipped'/.test(jsx), 'and the timeline names each decision in its year');
+}
+
+section('P148 — five withdrawal-led strategies, in the engine, with tax');
+
+{
+  const fsMod = require('fs'), pathMod = require('path'), vmMod = require('vm');
+  const ROOT = pathMod.resolve(__dirname, '..');
+  const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+  const { withdrawalStrategyOf, WITHDRAWAL_STRATEGIES, WITHDRAWAL_LED, rmdStrategyDivisor, vpwRate, spendingWithdrawalOf } = engine;
+
+  eq(WITHDRAWAL_STRATEGIES.join(','), 'target,guardrails,constant,percent,rmd,vanguard,vpw', 'seven strategies');
+  eq([...WITHDRAWAL_LED].join(','), 'constant,percent,rmd,vanguard,vpw', 'five of them set the withdrawal');
+  eq(withdrawalStrategyOf({}), 'target', 'a plan that never chose has its spending target');
+  eq(withdrawalStrategyOf({ spendingGuardrailsEnabled: true }), 'guardrails', 'a plan saved with the guardrail switch keeps its guardrails');
+  eq(withdrawalStrategyOf({ withdrawalStrategy: 'vpw', spendingGuardrailsEnabled: true }), 'vpw', 'an explicit strategy wins');
+  eq(withdrawalStrategyOf({ withdrawalStrategy: 'nonsense' }), 'target', 'and an unknown one falls back to the target');
+  eq(engine.DEFAULT_PLAN_INFO.withdrawalStrategy, '', 'the default derives from the older switch, so no saved plan changes');
+
+  const base = { ...engine.DEFAULT_PLAN_INFO, myAge: 62, myRetirementAge: 62, filingStatus: 'single', state: 'Texas',
+    desiredRetirementIncome: 60000, legacyAge: 95, inflationRate: 0.03, healthcareModel: 'none', ltcModel: 'none' };
+  const accts = [
+    { id: 1, name: 'IRA', type: 'traditional_ira', owner: 'me', balance: 700000, contribution: 0, cagr: 0.06, startAge: 62, stopAge: 62, contributor: 'me' },
+    { id: 2, name: 'Brok', type: 'brokerage', owner: 'me', balance: 500000, contribution: 0, cagr: 0.06, startAge: 62, stopAge: 62, contributor: 'me', costBasisPercent: 0.7 }];
+  const ss = [{ id: 1, type: 'social_security', owner: 'me', name: 'SS', amount: 30000, startAge: 67, endAge: 120, cola: 0.03 }];
+  const run = (strategy, extra = {}, o, events = []) => computeProjections({ ...base, withdrawalStrategy: strategy, ...extra }, accts, ss, [], events, [], TODAY_YEAR, o);
+  // The rule's own withdrawal. The plan's modelled costs (Medicare from 65, for
+  // one) are paid on top of it, so the row's total draw can be larger.
+  const draw = (r) => r.strategyDraw;
+
+  // The default is exactly what it was.
+  const plain = computeProjections(base, accts, ss, [], [], [], TODAY_YEAR);
+  const target = run('target');
+  eq(JSON.stringify(target.map(r => [r.desiredIncome, r.portfolioWithdrawal, r.totalPortfolio])),
+     JSON.stringify(plain.map(r => [r.desiredIncome, r.portfolioWithdrawal, r.totalPortfolio])), 'choosing the target is the plan as it always ran');
+
+  // The 4% rule: 4% of the starting portfolio, then the same dollars plus inflation.
+  const c = run('constant');
+  approx(draw(c[0]), 0.04 * 1200000, 'the 4% rule takes 4% of the portfolio in the first year', 0.001);
+  approx(draw(c[1]), draw(c[0]) * 1.03, 'then the same dollars raised by inflation', 0.001);
+  approx(draw(c[10]), draw(c[0]) * Math.pow(1.03, 10), 'whatever the portfolio does', 0.001);
+  const c5 = run('constant', { strategyRatePct: 0.05 });
+  approx(draw(c5[0]), 0.05 * 1200000, 'at the rate the plan sets', 0.001);
+
+  // Fixed percentage: the rate times the start-of-year balance, every year.
+  const pc = run('percent');
+  for (let k = 1; k < 20; k++) approx(draw(pc[k]), 0.04 * pc[k - 1].totalPortfolio, `fixed % takes 4% of the balance at ${pc[k].myAge}`, 0.002);
+  const m70 = pc.find(r => r.myAge === 70);
+  gt(m70.healthcareExpense, 0, 'the plan pays Medicare premiums from 65');
+  gt(spendingWithdrawalOf(m70), m70.strategyDraw + m70.healthcareExpense * 0.99, 'and they are withdrawn on top of the strategy\u2019s own draw');
+
+  // RMD method: the Uniform Lifetime divisor, extended below 72.
+  eq(rmdStrategyDivisor(72), 27.4, 'the divisor at 72 is the IRS table’s');
+  eq(rmdStrategyDivisor(80), 20.2, 'and at 80');
+  approx(rmdStrategyDivisor(62), 36.4, 'below 72 it extends at the table’s slope', 1e-9);
+  const rm = run('rmd');
+  approx(draw(rm[0]), 1200000 / 36.4, 'the RMD method takes the portfolio over the divisor', 0.001);
+  const r75 = rm.find(r => r.myAge === 75), r74 = rm.find(r => r.myAge === 74);
+  approx(draw(r75), r74.totalPortfolio / 24.6, 'at 75 as the table says', 0.002);
+  gt(draw(r75) / r74.totalPortfolio, draw(rm[0]) / 1200000, 'and the rate rises with age');
+
+  // Vanguard dynamic spending: the real change is held between +5% and −2.5%.
+  const H = 40;
+  // Rough but growing markets (about 5% a year compounded), so the rule is
+  // tested on its own terms rather than on a portfolio being wiped out.
+  const rough = new Array(H).fill(undefined).map((_, i) => ({ marketReturn: [0.25, -0.20, 0.18, -0.08, 0.22, -0.12, 0.10, 0.15][i % 8], inflation: 0.03 }));
+  const vg = run('vanguard', {}, { yearOverrides: rough });
+  let within = true, bound = 0;
+  for (let k = 1; k < 25; k++) {
+    const ratio = draw(vg[k]) / (draw(vg[k - 1]) * 1.03);
+    // Dollars are rounded on the row, so the bounds are checked to a tenth of a percent.
+    if (ratio > 1.051 || ratio < 0.974) within = false;
+    if (Math.abs(ratio - 1.05) < 1e-3 || Math.abs(ratio - 0.975) < 1e-3) bound++;
+  }
+  ok(within, 'Vanguard never moves spending more than +5% or −2.5% after inflation in a year');
+  gt(bound, 3, 'and in rough markets it sits on the ceiling or the floor often');
+  const pcRough = run('percent', {}, { yearOverrides: rough });
+  gt(Math.max(...pcRough.slice(1, 25).map((r, k) => Math.abs(draw(r) / (draw(pcRough[k]) * 1.03) - 1))), 0.15,
+    'where a plain fixed percentage swings much further');
+
+  // VPW: the annuity payment over the years to the planning age (plus one).
+  approx(vpwRate(30, 0), 1 / 30, 'VPW at a zero return spends evenly', 1e-12);
+  approx(vpwRate(20, 0.03), 0.03 / (1 - Math.pow(1.03, -20)), 'and otherwise pays the annuity rate', 1e-12);
+  const vp = run('vpw');
+  const at95 = vp.find(r => r.myAge === 95);
+  // It pays out to age 100 (Bogleheads' tables), so at the planning age of 95
+  // it still holds some five years of payments — its margin for a long life.
+  gt(at95.totalPortfolio, 0, 'VPW still holds a balance at the planning age');
+  const drawAt95 = draw(at95);
+  ok(at95.totalPortfolio > 3 * drawAt95 && at95.totalPortfolio < 9 * drawAt95, 'about five years of payments, as a payout to 100 leaves');
+  approx(drawAt95 / vp.find(r => r.myAge === 94).totalPortfolio, vpwRate(100 - 95 + 2, draw(vp[0]) > 0 ? (vp.find(r => r.myAge === 61) || vp[0]).weightedCAGR - 0.03 : 0.03), 'the payment at 95 is the annuity rate for the years left to 100', 0.02);
+  gt(draw(vp[0]), draw(pc[0]), 'and spends more than a fixed 4% early, as the payout over a finite horizon should');
+
+  // Spending is what the draw buys: the solver lands on the chosen draw plus the
+  // plan's costs, and what the draw nets, plus other income, is the year's spending.
+  ['constant', 'percent', 'rmd', 'vanguard', 'vpw'].forEach(st => {
+    const rows = run(st);
+    eq(Math.max(...rows.map(r => Math.abs(r.solverResidual || 0))) < 15, true, `${st}: the year delivers what the withdrawal buys`);
+    gt(rows.find(r => r.myAge === 70).desiredIncome, rows.find(r => r.myAge === 66).desiredIncome, `${st}: spending rises when Social Security arrives`);
+  });
+  // Dated one-time expenses are paid on top of the strategy's budget.
+  const pcEv = run('percent', {}, undefined, [{ id: 9, name: 'Roof', type: 'expense', amount: 40000, age: 70 }]);
+  eq(pcEv.find(r => r.myAge === 70).desiredIncome, pc.find(r => r.myAge === 70).desiredIncome, 'a one-time expense does not cut that year’s spending');
+  gt(pcEv.find(r => r.myAge === 70).portfolioWithdrawal, pc.find(r => r.myAge === 70).portfolioWithdrawal + 40000, 'it is withdrawn on top, grossed up for tax');
+  // A withdrawal-led strategy decides spending itself: guardrails never run on it.
+  const noGk = run('percent', { spendingGuardrailsEnabled: true }, { spendingRule: { bandPct: 0.2 } });
+  eq(noGk.some(r => r.guardrailEvent || r.guardrailMultiplier !== undefined), false, 'guardrails never run on top of a withdrawal-led strategy');
+
+  // The what-if and the plan summary.
+  const sc = engine.sandboxScenario({ pi: base, accts, streams: ss }, { withdrawalStrategy: 'rmd' });
+  eq(sc.pi.withdrawalStrategy, 'rmd', 'the what-if sets the plan’s strategy');
+  eq(sc.pi.spendingGuardrailsEnabled, false, 'keeping the older switch in step');
+  ok(sc.moved.some(m => m.name === 'Withdrawal strategy'), 'and reports the change');
+  const gOn = engine.sandboxScenario({ pi: base, accts, streams: ss }, { spendingGuardrails: true });
+  eq(withdrawalStrategyOf(gOn.pi), 'guardrails', 'the older guardrail lever still lands on the strategy');
+  ok(engine.activeAdvancedSettings({ ...base, withdrawalStrategy: 'vanguard' }).some(x => x.key === 'guardrails' && /Vanguard/.test(x.detail)),
+    'the plan summary names the strategy');
+
+  // Monte Carlo: spending across simulations, and a fixed percentage never runs out.
+  const runJob = (payload) => {
+    const sb = { console, Math, Date, JSON, Object, Array, Number, String, Boolean, Set, Map,
+      Infinity, NaN, isNaN, parseFloat, parseInt, Error, RegExp, Promise, undefined, URLSearchParams, __out: [] };
+    sb.self = sb; sb.globalThis = sb; sb.location = { search: '?v=test' };
+    sb.importScripts = (spec) => vmMod.runInContext(fsMod.readFileSync(pathMod.join(ROOT, spec.split('?')[0]), 'utf8'), sb);
+    sb.postMessage = (m) => { if (m.type !== 'progress') sb.__out.push(m); };
+    vmMod.createContext(sb);
+    vmMod.runInContext(fsMod.readFileSync(pathMod.join(ROOT, 'worker.js'), 'utf8'), sb);
+    sb.onmessage({ data: { jobId: 1, type: 'monteCarlo', payload } });
+    const err = sb.__out.find(m => m.type === 'error'); if (err) throw new Error(err.error);
+    return sb.__out.find(m => m.type === 'result').data;
+  };
+  const sim = { startAge: 62, numSimulations: 80, method: 'random', meanReturn: 0.06, stdDev: 0.16, inflationMean: 0.03, inflationStdDev: 0.01 };
+  const job = (st) => runJob({ personalInfo: { ...base, withdrawalStrategy: st }, accounts: accts, incomeStreams: ss, assets: [], oneTimeEvents: [], recurringExpenses: [], simSettings: sim, seed: 11 });
+  const mPct = job('percent');
+  // The rule itself never empties the portfolio; only the plan's costs, paid on
+  // top of it (Medicare here), can — so it almost never runs out.
+  gt(mPct.successRate, 0.95, 'a fixed percentage almost never runs the portfolio out — only costs paid on top of it can');
+  ok(mPct.spendingStats && mPct.spendingStats.strategy === 'percent', 'and the simulations report what it let you spend');
+  lt(mPct.spendingStats.p10Min, mPct.spendingStats.medianFirst, 'which, in the worst runs, falls below the first year');
+  eq(mPct.guardrailsEnabled, false, 'with no guardrail stats for a rule that did not run');
+  const mVg = job('vanguard');
+  // Vanguard's floor is a trade: spending cannot fall more than 2.5% a year, so in a
+  // long slump it keeps withdrawing above its target percentage and, unlike a plain
+  // percentage, can run the portfolio down.
+  ok(mVg.spendingStats && mVg.spendingStats.strategy === 'vanguard', 'Vanguard\u2019s spending is reported too');
+  ok(mVg.successRate <= mPct.successRate, 'and its floor, unlike a plain percentage, can run a portfolio down in a long slump');
+
+  // The app.
+  const choices = [...jsx.slice(jsx.indexOf('const WITHDRAWAL_STRATEGY_CHOICES = ['), jsx.indexOf('];', jsx.indexOf('const WITHDRAWAL_STRATEGY_CHOICES = ['))).matchAll(/\{ id: '(\w+)'/g)].map(m => m[1]);
+  eq(choices.join(','), WITHDRAWAL_STRATEGIES.join(','), 'the picker lists every strategy the engine runs, in its order');
+  ok(/WITHDRAWAL_STRATEGY_CHOICES\.map\(c => <option key=\{c\.id\} value=\{c\.id\}>\{c\.label\}<\/option>\)/.test(jsx), 'About you and the what-if both offer them');
+  ok(/spending target above is not used in retirement/.test(jsx), 'About you says the target steps aside under a withdrawal-led strategy');
+  ok(/disabled=\{pickLeadsWithdrawal\}/.test(jsx), 'and so does the what-if spending slider');
+  ok(/simResults\.spendingStats && simResults\.spendingStats\.strategy !== 'target'/.test(jsx), 'Will it last? shows spending under the strategy');
+  ok(/const cushion = !leadsWithdrawal && /.test(jsx), 'and the health card drops spending advice that no longer applies');
+  ['Bengen, 1994', 'Sun & Webb, 2012', 'Vanguard, 2020', 'Bogleheads', 'Guyton & Klinger, 2006'].forEach(src =>
+    ok(jsx.includes(src), `the picker cites ${src}`));
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────────
