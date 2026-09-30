@@ -31,6 +31,10 @@
 @font-face { font-family: 'Chakra Petch'; font-style: normal; font-weight: 600; font-display: swap; src: url(vendor/fonts/chakra-petch-600.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 @font-face { font-family: 'Chakra Petch'; font-style: normal; font-weight: 700; font-display: swap; src: url(vendor/fonts/chakra-petch-700.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 @font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400 600; font-display: swap; src: url(vendor/fonts/jetbrains-mono-var.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Space Grotesk'; font-style: normal; font-weight: 400 700; font-display: swap; src: url(vendor/fonts/space-grotesk-var.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Outfit'; font-style: normal; font-weight: 400 700; font-display: swap; src: url(vendor/fonts/outfit-var.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Lexend'; font-style: normal; font-weight: 400 700; font-display: swap; src: url(vendor/fonts/lexend-var.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: 'Urbanist'; font-style: normal; font-weight: 400 700; font-display: swap; src: url(vendor/fonts/urbanist-var.woff2) format('woff2'); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
 
 /* ── Shared by every look ──────────────────────────────────────────────── */
 /* The page ground moves to <html>, and everything above it goes transparent,
@@ -98,7 +102,11 @@
    backgrounds it is switched off; the aurora is soft already, and stars behind
    a translucent card read as depth rather than noise. */
 :root[data-look="aurora"] .app-shell main .backdrop-blur-sm,
-:root[data-look="observatory"] .app-shell main .backdrop-blur-sm { backdrop-filter: none; -webkit-backdrop-filter: none; }
+:root[data-look="observatory"] .app-shell main .backdrop-blur-sm,
+:root[data-look="neon"] .app-shell main .backdrop-blur-sm,
+:root[data-look="ember"] .app-shell main .backdrop-blur-sm,
+:root[data-look="abyss"] .app-shell main .backdrop-blur-sm,
+:root[data-look="prism"] .app-shell main .backdrop-blur-sm { backdrop-filter: none; -webkit-backdrop-filter: none; }
 :root[data-look="aurora"] aside { background-color: rgb(var(--c-slate-900) / .5); backdrop-filter: blur(22px) saturate(140%); -webkit-backdrop-filter: blur(22px) saturate(140%); }
 :root[data-look="aurora"] .app-shell .rounded-xl { border-radius: 20px; }
 :root[data-look="aurora"] .app-shell .rounded-lg { border-radius: 14px; }
@@ -158,9 +166,179 @@
 }
 @keyframes look-sweep { 0% { left: 0; opacity: .9; } 85% { opacity: .9; } 100% { left: 100%; opacity: 0; } }
 
+/* ── Neon: synthwave glow, a striped sun, a grid that scrolls toward you ── */
+:root[data-look="neon"], :root[data-look="neon"] body { font-family: 'Space Grotesk', system-ui, sans-serif; }
+:root[data-look="neon"] .look-fx {
+  background: linear-gradient(to bottom, transparent 0%, rgba(90, 20, 120, .28) 55%, rgba(255, 95, 210, .16) 72%, transparent 100%);
+  perspective: 520px;
+}
+/* The sun: a gradient disc, its lower half cut into the classic stripes by a mask. */
+:root[data-look="neon"] .look-fx i:nth-child(1) {
+  display: block; width: 34vmin; height: 34vmin; left: 50%; bottom: 1vh; margin-left: -17vmin; border-radius: 50%;
+  background: linear-gradient(to bottom, #ffd36e 0%, #ff8fb1 45%, #ff5fd2 65%, #8a3bff 100%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 52%, transparent 52% 56%, #000 56% 64%, transparent 64% 69%, #000 69% 77%, transparent 77% 83%, #000 83% 90%, transparent 90%);
+  mask-image: linear-gradient(to bottom, #000 52%, transparent 52% 56%, #000 56% 64%, transparent 64% 69%, #000 69% 77%, transparent 77% 83%, #000 83% 90%, transparent 90%);
+  opacity: .22; filter: drop-shadow(0 0 40px rgba(255, 95, 210, .6));
+  animation: look-neon-pulse 6s ease-in-out infinite alternate;
+}
+/* The grid: a plane tipped away in perspective, moving one cell per loop so
+   the loop is seamless; faded out toward the horizon. Transform-only, so it
+   runs on the compositor. */
+:root[data-look="neon"] .look-fx i:nth-child(2) {
+  display: block; left: -50%; right: -50%; bottom: -14vh; height: 46vh;
+  background-image: linear-gradient(rgba(255, 95, 210, .5) 2px, transparent 2px),
+                    linear-gradient(90deg, rgba(53, 208, 255, .32) 2px, transparent 2px);
+  background-size: 80px 80px;
+  transform-origin: 50% 100%; transform: rotateX(72deg);
+  -webkit-mask-image: linear-gradient(to top, #000 25%, transparent 85%);
+  mask-image: linear-gradient(to top, #000 25%, transparent 85%);
+  opacity: .4; will-change: transform;
+  animation: look-neon-grid 2.4s linear infinite;
+}
+@keyframes look-neon-grid { from { transform: rotateX(72deg) translateY(0); } to { transform: rotateX(72deg) translateY(80px); } }
+@keyframes look-neon-pulse { from { opacity: .12; } to { opacity: .2; } }
+:root[data-look="neon"] .app-shell :is(h1, h2, h3) { text-shadow: 0 0 14px rgb(var(--look-accent) / .55); }
+:root[data-look="neon"] .app-shell .rounded-xl.border {
+  border-color: rgb(var(--look-accent) / .35);
+  box-shadow: 0 0 22px -8px rgb(var(--look-accent) / .6), inset 0 0 0 1px rgba(53, 208, 255, .06);
+}
+:root[data-look="neon"] .app-shell .recharts-line-curve,
+:root[data-look="neon"] .app-shell .recharts-area-curve { filter: url(#look-glow); }
+
+/* ── Ember: molten glow and rising embers ──────────────────────────────── */
+:root[data-look="ember"], :root[data-look="ember"] body { font-family: 'Outfit', system-ui, sans-serif; }
+:root[data-look="ember"] .look-fx {
+  background: radial-gradient(1300px 520px at 50% 118%, rgba(255, 110, 40, .30), transparent 70%),
+              radial-gradient(700px 300px at 12% 112%, rgba(255, 60, 20, .20), transparent 70%),
+              radial-gradient(700px 300px at 90% 115%, rgba(255, 150, 50, .14), transparent 70%);
+}
+/* Two ember fields at different tile sizes and speeds, each rising exactly
+   one tile per loop. Extended below the screen by a tile so the rise never
+   exposes an edge. */
+:root[data-look="ember"] .look-fx i:nth-child(1),
+:root[data-look="ember"] .look-fx i:nth-child(2) { display: block; left: 0; right: 0; top: 0; will-change: transform; }
+:root[data-look="ember"] .look-fx i:nth-child(1) {
+  bottom: -600px; opacity: .75;
+  background-image:
+    radial-gradient(2px 2px at 40px 520px, #ffb35c, transparent), radial-gradient(1.5px 1.5px at 150px 380px, #ff7a2e, transparent),
+    radial-gradient(2.5px 2.5px at 250px 200px, #ffd27a, transparent), radial-gradient(1.5px 1.5px at 90px 90px, #ff9440, transparent),
+    radial-gradient(2px 2px at 210px 460px, #ff6a1f, transparent);
+  background-size: 300px 600px;
+  animation: look-ember-rise 16s linear infinite, look-ember-flicker 1.7s ease-in-out infinite alternate;
+}
+:root[data-look="ember"] .look-fx i:nth-child(2) {
+  bottom: -760px; opacity: .45;
+  background-image:
+    radial-gradient(1.5px 1.5px at 60px 700px, #ffc06a, transparent), radial-gradient(3px 3px at 330px 420px, #ff8a3a, transparent),
+    radial-gradient(1.5px 1.5px at 200px 140px, #ffe0a0, transparent);
+  background-size: 420px 760px;
+  animation: look-ember-rise-slow 27s linear infinite;
+}
+/* The glow breathes. */
+:root[data-look="ember"] .look-fx i:nth-child(3) {
+  display: block; left: 0; right: 0; bottom: 0; height: 34vh;
+  background: radial-gradient(60% 100% at 50% 100%, rgba(255, 120, 40, .22), transparent 70%);
+  animation: look-ember-breathe 5s ease-in-out infinite alternate;
+}
+@keyframes look-ember-rise { to { transform: translate3d(0, -600px, 0); } }
+@keyframes look-ember-rise-slow { to { transform: translate3d(0, -760px, 0); } }
+@keyframes look-ember-flicker { from { opacity: .55; } to { opacity: .85; } }
+@keyframes look-ember-breathe { from { opacity: .6; } to { opacity: 1; } }
+:root[data-look="ember"] .app-shell .rounded-xl.border {
+  border-color: rgb(var(--look-accent) / .22);
+  box-shadow: inset 0 1px 0 rgba(255, 170, 100, .07), 0 20px 44px -26px rgba(255, 90, 30, .45);
+}
+:root[data-look="ember"] .app-shell main h2 {
+  background: linear-gradient(90deg, #ffd08a, #ff8f45 60%, #ff6a3d);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+:root[data-look="ember"] .app-shell .recharts-line-curve,
+:root[data-look="ember"] .app-shell .recharts-area-curve { filter: url(#look-glow); }
+
+/* ── Abyss: light from the surface, bioluminescent specks ──────────────── */
+:root[data-look="abyss"], :root[data-look="abyss"] body { font-family: 'Lexend', system-ui, sans-serif; }
+:root[data-look="abyss"] .look-fx {
+  background: linear-gradient(to bottom, rgba(40, 140, 170, .20), transparent 55%),
+              radial-gradient(900px 400px at 50% -80px, rgba(120, 240, 255, .12), transparent 70%);
+}
+/* Light rays: soft bands fanned down from above, swaying slowly about the top. */
+:root[data-look="abyss"] .look-fx i:nth-child(1) {
+  display: block; left: 5%; right: 5%; top: -20%; height: 130%;
+  background: repeating-linear-gradient(100deg, rgba(140, 240, 255, .07) 0 36px, transparent 36px 110px);
+  -webkit-mask-image: radial-gradient(90% 70% at 50% 0%, #000 20%, transparent 75%);
+  mask-image: radial-gradient(90% 70% at 50% 0%, #000 20%, transparent 75%);
+  filter: blur(5px); transform-origin: 50% 0%; will-change: transform;
+  animation: look-abyss-sway 14s ease-in-out infinite alternate;
+}
+/* Specks drifting up and across, at two depths. */
+:root[data-look="abyss"] .look-fx i:nth-child(2),
+:root[data-look="abyss"] .look-fx i:nth-child(3) { display: block; left: 0; top: 0; will-change: transform; }
+:root[data-look="abyss"] .look-fx i:nth-child(2) {
+  right: -400px; bottom: -400px; opacity: .7;
+  background-image:
+    radial-gradient(2px 2px at 60px 320px, #3ff0c8, transparent), radial-gradient(1.5px 1.5px at 260px 90px, #7ff5ff, transparent),
+    radial-gradient(2.5px 2.5px at 340px 250px, #3ff0c8, transparent), radial-gradient(1.5px 1.5px at 150px 180px, #b6fff0, transparent);
+  background-size: 400px 400px;
+  animation: look-abyss-drift 38s linear infinite, look-abyss-glint 3.3s ease-in-out infinite alternate;
+}
+:root[data-look="abyss"] .look-fx i:nth-child(3) {
+  right: -560px; bottom: -560px; opacity: .35; filter: blur(1px);
+  background-image:
+    radial-gradient(3px 3px at 120px 480px, #3ff0c8, transparent), radial-gradient(2px 2px at 430px 140px, #7ff5ff, transparent);
+  background-size: 560px 560px;
+  animation: look-abyss-drift-far 64s linear infinite;
+}
+@keyframes look-abyss-sway { from { transform: rotate(-3deg); } to { transform: rotate(3deg); } }
+@keyframes look-abyss-drift { to { transform: translate3d(-400px, -400px, 0); } }
+@keyframes look-abyss-drift-far { to { transform: translate3d(-560px, -560px, 0); } }
+@keyframes look-abyss-glint { from { opacity: .45; } to { opacity: .8; } }
+:root[data-look="abyss"] .app-shell .rounded-xl { border-radius: 16px; }
+:root[data-look="abyss"] .app-shell .rounded-xl.border {
+  box-shadow: inset 0 1px 0 rgba(140, 240, 255, .06), 0 0 34px -20px rgb(var(--look-accent) / .45);
+}
+:root[data-look="abyss"] .app-shell .recharts-line-curve,
+:root[data-look="abyss"] .app-shell .recharts-area-curve { filter: url(#look-glow); }
+
+/* ── Prism: a turning spectrum, holographic panel edges ────────────────── */
+:root[data-look="prism"], :root[data-look="prism"] body { font-family: 'Urbanist', system-ui, sans-serif; }
+/* Two blurred spectrum wheels turning in opposite directions. Rotation is a
+   transform, so the heavy blur is rasterised once and only composited. */
+:root[data-look="prism"] .look-fx i:nth-child(1),
+:root[data-look="prism"] .look-fx i:nth-child(2) {
+  display: block; border-radius: 50%; filter: blur(110px); will-change: transform;
+  background: conic-gradient(from 0deg, #ff7ce0, #7cf2ff, #b69cff, #ffe27c, #7cffb0, #ff7ce0);
+}
+:root[data-look="prism"] .look-fx i:nth-child(1) {
+  width: 110vmax; height: 110vmax; right: -45vmax; top: -55vmax; opacity: .20;
+  animation: look-prism-turn 70s linear infinite;
+}
+:root[data-look="prism"] .look-fx i:nth-child(2) {
+  width: 80vmax; height: 80vmax; left: -40vmax; bottom: -45vmax; opacity: .13;
+  animation: look-prism-turn 90s linear infinite reverse;
+}
+@keyframes look-prism-turn { to { transform: rotate(360deg); } }
+/* Holographic edges on the panels whose fill is the shared card gradient:
+   the fill stays in the padding box, a spectrum shows through the border. */
+:root[data-look="prism"] .app-shell .rounded-xl.border.bg-gradient-to-br {
+  border-color: transparent;
+  background: linear-gradient(to bottom right, var(--tw-gradient-stops)) padding-box,
+              linear-gradient(120deg, rgba(255, 124, 224, .55), rgba(124, 242, 255, .55), rgba(182, 156, 255, .55), rgba(255, 226, 124, .5)) border-box;
+}
+:root[data-look="prism"] .app-shell .rounded-xl { border-radius: 18px; }
+:root[data-look="prism"] .app-shell main h2 {
+  background: linear-gradient(90deg, #ff9ce8, #9cf5ff, #c7a6ff, #ffe89c);
+  background-size: 300% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: look-prism-sheen 12s ease-in-out infinite alternate;
+}
+@keyframes look-prism-sheen { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
+:root[data-look="prism"] .app-shell .recharts-line-curve,
+:root[data-look="prism"] .app-shell .recharts-area-curve { filter: url(#look-glow); }
+
 @media (prefers-reduced-motion: reduce) {
   .look-fx i { animation: none !important; }
   :root[data-look] .app-shell .recharts-wrapper::after { display: none; }
+  :root[data-look="prism"] .app-shell main h2 { animation: none; }
 }
 @media print {
   .look-fx, .look-defs { display: none !important; }

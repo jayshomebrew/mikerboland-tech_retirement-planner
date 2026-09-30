@@ -49,8 +49,8 @@ After refreshing, smoke-test desktop and mobile in a hard-reloaded browser.
 
 ## Fonts (`fonts/`)
 
-The typefaces behind the four dark looks (Observatory, Aurora, Vault, Flight
-Deck). Self-hosted rather than linked from Google Fonts because the page's
+The typefaces behind the dark looks (Observatory, Aurora, Vault, Flight Deck,
+Neon, Ember, Abyss, Prism). Self-hosted rather than linked from Google Fonts because the page's
 Content-Security-Policy allows fonts only from the site itself, and so choosing
 a look never tells a third party that someone opened a retirement planner. Only
 the Latin subset is kept; a browser downloads a file only when the active look
@@ -70,3 +70,7 @@ Google Fonts CSS2 API (`display=swap`, Latin subset).
 | `instrument-sans-var.woff2`  | Instrument Sans, variable 400–700| Vault        |
 | `chakra-petch-400…700.woff2` | Chakra Petch 400, 500, 600, 700  | Flight Deck  |
 | `jetbrains-mono-var.woff2`   | JetBrains Mono, variable 400–600 | Flight Deck  |
+| `space-grotesk-var.woff2`    | Space Grotesk, variable 400–700  | Neon         |
+| `outfit-var.woff2`           | Outfit, variable 400–700         | Ember        |
+| `lexend-var.woff2`           | Lexend, variable 400–700         | Abyss        |
+| `urbanist-var.woff2`         | Urbanist, variable 400–700       | Prism        |

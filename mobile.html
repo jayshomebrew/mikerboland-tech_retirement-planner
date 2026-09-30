@@ -5,7 +5,7 @@
   <!-- Content Security Policy — see index.html for the reasoning. Generated
        by tools/build.cjs; must be the first thing in <head>. -->
   <!-- BEGIN GENERATED CSP (tools/build.cjs) -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' blob: 'sha256-w+qUNdWhikeRvFZlyTXxvu0ugfOooPPCsOaR+1sTGRg=' 'sha256-aFa3Qyq3cd18ErHwjFHjfZYiQiIG5Vu5nW1sb0b1o3I=' 'sha256-BIjCZBXQ4Ix3p8YecnH+yqC5R6O5cDCHqpJWKlcYawY=' 'sha256-gLQRWSrsEjIK41uw7cKRWyF+tnVKgb5Apv5agk9dCVc=' 'sha256-wuJJENNnybVY+HebEod36XkxjajBXi/d3rfMVwxsjqw=' 'sha256-v75Oq+BIRf71e7yW1wDvjBycpgXpVFxlmg4QVLCd3pA='; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://api.anthropic.com; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' blob: 'sha256-OBmG+fYgtls77c2EibavL1RKITbeoI8loMgI0jY1idE=' 'sha256-akkAqLwF5DvLWwJ02rSGR9kosDFsC9FS2E8VMyOoInU=' 'sha256-BIjCZBXQ4Ix3p8YecnH+yqC5R6O5cDCHqpJWKlcYawY=' 'sha256-L+rXSxSAjNHOnKqysdSgl+61BCdujHjz4rpCEtDzCWg=' 'sha256-wuJJENNnybVY+HebEod36XkxjajBXi/d3rfMVwxsjqw=' 'sha256-v75Oq+BIRf71e7yW1wDvjBycpgXpVFxlmg4QVLCd3pA='; worker-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' https://api.anthropic.com; object-src 'none'; base-uri 'self'; form-action 'self'">
   <!-- END GENERATED CSP -->
   <!-- viewport-fit=cover lets the page extend under iPhone's notch/safe areas; our CSS uses env() to inset properly -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
@@ -22,14 +22,14 @@
   <!-- No icon file: an empty one stops the browser requesting /favicon.ico and logging a 404. -->
   <link rel="icon" href="data:,">
   <!-- BEGIN GENERATED BUILD STAMP (tools/build.cjs) -->
-  <link rel="stylesheet" href="app.css?h=4b559424">
-  <script>window.PLANNER_BUILD = {"src":"228a5493","css":"4b559424"};</script>
+  <link rel="stylesheet" href="app.css?h=12ea8c">
+  <script>window.PLANNER_BUILD = {"src":"228a5493","css":"12ea8c"};</script>
   <!-- END GENERATED BUILD STAMP -->
   <!-- APP_VERSION — single source of truth. Keep this value in sync with
        index.html so desktop and mobile cache-bust to the same version. The body
        IIFE below loads engine.js dynamically using this value (and awaits it
        before touching window.PlannerEngine), so there is no second place to edit. -->
-  <script>window.APP_VERSION = '2.61.0';</script>
+  <script>window.APP_VERSION = '2.62.0';</script>
   <!-- BEGIN GENERATED THEME TOKENS (tools/build.cjs from theme.js) -->
   <script>window.PLANNER_TW_CONFIG = { theme: { extend: { colors: {
       "slate": {"50":"rgb(var(--c-slate-50) / <alpha-value>)","100":"rgb(var(--c-slate-100) / <alpha-value>)","200":"rgb(var(--c-slate-200) / <alpha-value>)","300":"rgb(var(--c-slate-300) / <alpha-value>)","400":"rgb(var(--c-slate-400) / <alpha-value>)","500":"rgb(var(--c-slate-500) / <alpha-value>)","600":"rgb(var(--c-slate-600) / <alpha-value>)","700":"rgb(var(--c-slate-700) / <alpha-value>)","800":"rgb(var(--c-slate-800) / <alpha-value>)","900":"rgb(var(--c-slate-900) / <alpha-value>)","950":"rgb(var(--c-slate-950) / <alpha-value>)"},
@@ -99,6 +99,22 @@
     --c-slate-50:239 252 254; --c-slate-100:217 244 248; --c-slate-200:195 230 236; --c-slate-300:170 207 214; --c-slate-400:147 182 189; --c-slate-500:116 153 161; --c-slate-600:31 65 74; --c-slate-700:20 41 47; --c-slate-800:11 24 28; --c-slate-900:5 9 11; --c-slate-950:2 4 5;
     --look-accent:86 214 232;
   }
+  :root[data-look="neon"] {
+    --c-slate-50:251 248 255; --c-slate-100:244 239 255; --c-slate-200:230 221 251; --c-slate-300:210 198 240; --c-slate-400:184 168 220; --c-slate-500:154 134 196; --c-slate-600:69 48 107; --c-slate-700:44 28 72; --c-slate-800:26 15 46; --c-slate-900:13 6 25; --c-slate-950:7 3 15;
+    --look-accent:255 95 210;
+  }
+  :root[data-look="ember"] {
+    --c-slate-50:253 248 244; --c-slate-100:248 238 230; --c-slate-200:237 220 207; --c-slate-300:219 197 182; --c-slate-400:194 168 152; --c-slate-500:168 140 124; --c-slate-600:83 51 38; --c-slate-700:50 30 21; --c-slate-800:29 17 12; --c-slate-900:15 8 6; --c-slate-950:8 4 3;
+    --look-accent:255 143 69;
+  }
+  :root[data-look="abyss"] {
+    --c-slate-50:245 251 254; --c-slate-100:234 246 251; --c-slate-200:216 234 242; --c-slate-300:189 214 226; --c-slate-400:157 188 203; --c-slate-500:127 163 181; --c-slate-600:30 78 102; --c-slate-700:18 52 71; --c-slate-800:10 34 48; --c-slate-900:3 18 27; --c-slate-950:1 10 16;
+    --look-accent:63 240 200;
+  }
+  :root[data-look="prism"] {
+    --c-slate-50:250 250 254; --c-slate-100:242 242 248; --c-slate-200:228 228 239; --c-slate-300:208 208 224; --c-slate-400:180 180 202; --c-slate-500:150 150 176; --c-slate-600:60 60 82; --c-slate-700:38 38 52; --c-slate-800:22 22 31; --c-slate-900:10 10 16; --c-slate-950:5 5 7;
+    --look-accent:199 166 255;
+  }
   #report-print {
     --c-slate-50:248 250 252; --c-slate-100:241 245 249; --c-slate-200:226 232 240; --c-slate-300:203 213 225; --c-slate-400:148 163 184; --c-slate-500:135 148 167; --c-slate-600:71 85 105; --c-slate-700:51 65 85; --c-slate-800:30 41 59; --c-slate-900:15 23 42; --c-slate-950:2 6 23;
     --c-amber-50:254 243 199; --c-amber-100:254 243 199; --c-amber-200:253 230 138; --c-amber-300:252 211 77; --c-amber-400:251 191 36; --c-amber-500:245 158 11; --c-amber-600:217 119 6; --c-amber-700:180 83 9; --c-amber-800:146 64 14; --c-amber-900:120 53 15; --c-amber-950:120 53 15;
@@ -117,7 +133,7 @@
     --c-rose-50:255 228 230; --c-rose-100:255 228 230; --c-rose-200:254 205 211; --c-rose-300:253 164 175; --c-rose-400:251 113 133; --c-rose-500:244 63 94; --c-rose-600:225 29 72; --c-rose-700:190 18 60; --c-rose-800:159 18 57; --c-rose-900:136 19 55; --c-rose-950:136 19 55;
   }
   </style>
-  <script>(function () { try { var t = localStorage.getItem("retirement_planner_theme"); var d = document.documentElement; if (t === "light") d.setAttribute("data-theme", "light"); else if (["observatory","aurora","vault","flight"].indexOf(t) !== -1) d.setAttribute("data-look", t); } catch (e) {} })();</script>
+  <script>(function () { try { var t = localStorage.getItem("retirement_planner_theme"); var d = document.documentElement; if (t === "light") d.setAttribute("data-theme", "light"); else if (["observatory","aurora","vault","flight","neon","ember","abyss","prism"].indexOf(t) !== -1) d.setAttribute("data-look", t); } catch (e) {} })();</script>
   <!-- END GENERATED THEME TOKENS -->
   <!-- The saved theme or look is applied before first paint by the last script
        in the generated block above (theme.js headBlock). -->

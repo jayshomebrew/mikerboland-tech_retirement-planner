@@ -16040,8 +16040,9 @@ section('P143 — four dark looks, chosen per browser');
   const pages = ['index.html', 'mobile.html'].map(f => [f, fsMod.readFileSync(pathMod.join(ROOT, f), 'utf8')]);
 
   // The choices: classic dark, light, and the four looks, one list for both apps.
-  eq(theme.CHOICES.map(c => c.id).join(','), 'dark,light,observatory,aurora,vault,flight', 'six choices, in picker order');
-  eq(theme.LOOK_IDS.length, 4, 'four of them are looks');
+  // Four looks in v2.56.0, four more in v2.62.0.
+  eq(theme.CHOICES.map(c => c.id).join(','), 'dark,light,observatory,aurora,vault,flight,neon,ember,abyss,prism', 'ten choices, in picker order');
+  eq(theme.LOOK_IDS.length, 8, 'eight of them are looks');
   eq(theme.normalizeChoice('vault'), 'vault', 'a look id is kept');
   eq(theme.normalizeChoice('solarized'), 'dark', 'anything unknown falls back to classic dark');
   eq(theme.normalizeChoice(null), 'dark', 'as does nothing at all');

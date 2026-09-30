@@ -440,6 +440,53 @@
       },
       chrome: { grid: '#10252b', baseline: '#4f7880', reference: '#e0a832' },
     },
+    // Round three (v2.62.0): four more, each with its own motion.
+    neon: {
+      label: 'Neon',
+      blurb: 'Synthwave: hot pink and cyan glow, a striped sunset sun and a grid that scrolls toward you.',
+      accent: '#ff5fd2',
+      swatch: ['#0d0619', '#ff5fd2', '#35d0ff'],
+      slate: {
+         50: '#fbf8ff', 100: '#f4efff', 200: '#e6ddfb', 300: '#d2c6f0', 400: '#b8a8dc',
+        500: '#9a86c4', 600: '#45306b', 700: '#2c1c48', 800: '#1a0f2e', 900: '#0d0619', 950: '#07030f',
+      },
+      // The retirement marker goes cyan: pink is the selected year's cursor.
+      chrome: { grid: '#2a1a45', baseline: '#6f5c99', reference: '#35d0ff' },
+    },
+    ember: {
+      label: 'Ember',
+      blurb: 'Black and molten orange, with embers rising from a glow along the bottom of the page.',
+      accent: '#ff8f45',
+      swatch: ['#0f0806', '#ff8f45', '#ffcf5a'],
+      slate: {
+         50: '#fdf8f4', 100: '#f8eee6', 200: '#eddccf', 300: '#dbc5b6', 400: '#c2a898',
+        500: '#a88c7c', 600: '#533326', 700: '#321e15', 800: '#1d110c', 900: '#0f0806', 950: '#080403',
+      },
+      // A cool steel marker, far from the orange cursor.
+      chrome: { grid: '#2c1a12', baseline: '#7d6252', reference: '#9fb4c7' },
+    },
+    abyss: {
+      label: 'Abyss',
+      blurb: 'The deep ocean: light rays swaying down from the surface and drifting bioluminescent specks.',
+      accent: '#3ff0c8',
+      swatch: ['#03121b', '#0a2230', '#3ff0c8'],
+      slate: {
+         50: '#f5fbfe', 100: '#eaf6fb', 200: '#d8eaf2', 300: '#bdd6e2', 400: '#9dbccb',
+        500: '#7fa3b5', 600: '#1e4e66', 700: '#123447', 800: '#0a2230', 900: '#03121b', 950: '#010a10',
+      },
+      chrome: { grid: '#10303f', baseline: '#4f7b8f', reference: '#e0a832' },
+    },
+    prism: {
+      label: 'Prism',
+      blurb: 'Graphite under a slowly turning spectrum, with holographic edges on every panel.',
+      accent: '#c7a6ff',
+      swatch: ['#0a0a10', '#7cf2ff', '#ff7ce0'],
+      slate: {
+         50: '#fafafe', 100: '#f2f2f8', 200: '#e4e4ef', 300: '#d0d0e0', 400: '#b4b4ca',
+        500: '#9696b0', 600: '#3c3c52', 700: '#262634', 800: '#16161f', 900: '#0a0a10', 950: '#050507',
+      },
+      chrome: { grid: '#23232f', baseline: '#66667f', reference: '#e0a832' },
+    },
   };
   const LOOK_IDS = Object.keys(LOOKS);
   // Every theme a user can choose, in picker order. The stored preference is one
