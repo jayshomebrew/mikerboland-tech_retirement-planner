@@ -31,14 +31,20 @@ button,input,select,textarea{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px}
 .wrap{max-width:980px;margin:0 auto;padding:0 16px}
 header.top{background:var(--head);color:var(--head-ink);padding-top:env(safe-area-inset-top)}
-header.top .wrap{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding-top:14px;padding-bottom:12px}
+header.top .wrap{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:12px;padding-bottom:10px}
 header.top h1{font-size:17px;font-weight:600;margin:0;letter-spacing:.01em}
-header.top .asof{font-size:13px;color:var(--head-dim);text-align:right}
+header.top .asof{font-size:13px;color:var(--head-dim);margin-top:1px}
+.hbtn{flex:0 0 auto;background:none;border:1px solid var(--head-dim);color:var(--head-ink);border-radius:8px;padding:7px 11px;font-size:13.5px;font-weight:500;cursor:pointer;white-space:nowrap}
+.hbtn[hidden]{display:none}
 nav.tabs{position:sticky;top:0;z-index:5;background:var(--head)}
 nav.tabs .wrap{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
 nav.tabs .wrap::-webkit-scrollbar{display:none}
 nav.tabs button{flex:0 0 auto;background:none;border:0;border-bottom:3px solid transparent;color:var(--head-dim);padding:10px 12px 9px;font-weight:500;cursor:pointer;white-space:nowrap}
 nav.tabs button[aria-selected=true]{color:var(--head-ink);border-bottom-color:var(--head-ink)}
+.tab-short{display:none}
+@media (max-width:560px){nav.tabs .wrap{gap:0;justify-content:space-between;padding:0 10px}nav.tabs button{padding:10px 6px 9px;font-size:14px}.tab-long{display:none}.tab-short{display:inline}}
+@media (max-width:380px){nav.tabs .wrap{padding:0 8px}nav.tabs button{padding:10px 4px 9px;font-size:13.5px}}
+@media (max-width:340px){nav.tabs .wrap{padding:0 6px}nav.tabs button{padding:10px 2px 9px;font-size:12.5px}}
 .scope{background:var(--band);border-bottom:1px solid var(--rule)}
 .scope .wrap{display:flex;gap:8px;overflow-x:auto;padding-top:10px;padding-bottom:10px;scrollbar-width:none}
 .scope .wrap::-webkit-scrollbar{display:none}
@@ -134,7 +140,7 @@ footer{border-top:1px solid var(--rule);padding:16px 0 30px;font-size:12.5px;col
 </style>
 </head>
 <body>
-<header class="top"><div class="wrap"><h1 id="title">Account Evaluator</h1><div class="asof" id="asof"></div></div></header>
+<header class="top"><div class="wrap"><div><h1 id="title">Account Evaluator</h1><div class="asof" id="asof"></div></div><button class="hbtn" id="update" hidden>Update data</button></div></header>
 <nav class="tabs"><div class="wrap" role="tablist" id="tabs"></div></nav>
 <div class="scope" id="scopebar" hidden><div class="wrap" id="scope"></div><div class="wrap" id="range"></div></div>
 <main><div class="wrap" id="main"></div></main>
@@ -174,7 +180,7 @@ const BUCKET_COLOR={'pre-tax':'--s1','Roth':'--s3','taxable':'--s2'};
 const ACCT_COLORS=['--s1','--s2','--s3','--s7','--s5','--s6','--s4','--s8'];
 const STORE='accountEvaluator.v1';
 const RANGES=[['ytd','YTD'],['1y','1 year'],['3y','3 years'],['5y','5 years'],['max','Max']];
-const TABS=[['overview','Overview'],['returns','Returns'],['bench','Benchmarks'],['alloc','Allocation & fees'],['data','Data']];
+const TABS=[['overview','Overview'],['returns','Returns'],['bench','Benchmarks'],['alloc','Allocation & fees','Allocation'],['data','Data']];
 
 /* ---------- small helpers ---------- */
 const $=(q,r=document)=>r.querySelector(q);
@@ -666,8 +672,8 @@ function viewData(){
   const out=[],d=D();
   const ta=h('textarea',{placeholder:'Paste the contents of a data file here','aria-label':'Pasted data'});
   const tryLoad=txt=>{ try{ setData(JSON.parse(txt),'Loaded. Everything on the other tabs now uses this data.'); }catch(e){ state.msg=e instanceof SyntaxError?'That text is not a complete data file. Copy the whole file, from the first { to the last }.':e.message; render(); } };
-  out.push(section('Your data file','The balances and holdings live in a separate file that you load here. It is remembered in this browser only; nothing is uploaded.',
-    h('div',{class:'row'},h('button',{class:'btn',onclick:()=>$('#file').click(),text:'Load data file'}),
+  out.push(section(d?'Load a new data file':'Your data file',d?'Loading a file replaces the data shown now with what is in the file. It is remembered in this browser only; nothing is uploaded.':'The balances and holdings live in a separate file that you load here. It is remembered in this browser only; nothing is uploaded.',
+    h('div',{class:'row'},h('button',{class:'btn',onclick:()=>$('#file').click(),text:d?'Load a new data file':'Load data file'}),
       d?h('button',{class:'btn quiet',onclick:()=>{ const a=h('a',{href:URL.createObjectURL(new Blob([exportText()],{type:'application/json'})),download:'account-evaluator-data.json'}); document.body.append(a); a.click(); a.remove(); state.msg='Backup saved to your downloads.'; render(); },text:'Save a backup file'}):null,
       d?h('button',{class:'btn quiet',onclick:()=>{ const t=exportText(); (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>{ state.msg='Data copied.'; render(); },()=>{ ta.value=t; ta.select(); state.msg='Copy the selected text below.'; $('.msg').textContent=state.msg; }); },text:'Copy data'}):null),
     h('p',{class:'msg',role:'status',text:state.msg}),
@@ -730,7 +736,8 @@ function render(){
   document.title=d&&d.title?`${d.title} | Account Evaluator`:'Account Evaluator';
   const lastDate=d&&d.accounts.length?d.accounts.map(a=>a.periods[a.periods.length-1].asOf).sort().pop():null;
   $('#asof').textContent=lastDate?`Statements through ${dLong(lastDate)}`:'';
-  $('#tabs').replaceChildren(...TABS.map(([id,name])=>h('button',{role:'tab','aria-selected':state.tab===id?'true':'false',onclick:()=>{ state.tab=id; state.msg=''; save(); render(); scrollTo(0,0); },text:name})));
+  $('#tabs').replaceChildren(...TABS.map(([id,name,short])=>h('button',{role:'tab','aria-label':name,'aria-selected':state.tab===id?'true':'false',onclick:()=>{ state.tab=id; state.msg=''; save(); render(); scrollTo(0,0); }},short?[h('span',{class:'tab-long',text:name}),h('span',{class:'tab-short',text:short})]:name)));
+  $('#update').hidden=!(d&&d.accounts.length)||state.tab==='data';
   const showScope=d&&d.accounts.length>1&&state.tab!=='data',showRange=!!(d&&d.accounts.length&&(state.tab==='returns'||state.tab==='bench'));
   $('#scopebar').hidden=!showScope&&!showRange; $('#scope').hidden=!showScope; $('#range').hidden=!showRange;
   if(showRange){ const acc=scopeAccts(),c=combine(acc),eff=windowed(acc).key;
@@ -745,6 +752,7 @@ function render(){
   main.replaceChildren(d&&d.example&&state.tab!=='data'?h('p',{class:'banner',text:'This is made-up example data. Load your own file on the Data tab.'}):null||'',...body);
   for(const f of pending) f();
 }
+$('#update').addEventListener('click',()=>{ state.tab='data'; state.msg=''; save(); render(); scrollTo(0,0); });
 $('#file').addEventListener('change',ev=>{
   const f=ev.target.files[0]; if(!f) return;
   const rd=new FileReader();
