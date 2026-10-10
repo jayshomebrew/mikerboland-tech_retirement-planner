@@ -44,6 +44,13 @@ nav.tabs button[aria-selected=true]{color:var(--head-ink);border-bottom-color:va
 .scope .wrap::-webkit-scrollbar{display:none}
 .chip{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;border:1px solid var(--axis);background:var(--surface);border-radius:999px;padding:5px 12px;cursor:pointer;font-size:14px}
 .chip[aria-pressed=true]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.scope .wrap+.wrap{padding-top:0}
+.scope .wrap[hidden]{display:none}
+.seg{display:inline-flex;flex:0 0 auto;border:1px solid var(--axis);border-radius:8px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;border-left:1px solid var(--axis);background:none;padding:6px 12px;font-size:14px;cursor:pointer;white-space:nowrap}
+.seg button:first-child{border-left:0}
+.seg button[aria-pressed=true]{background:var(--ink);color:var(--surface)}
+.seg button[aria-disabled=true]{color:var(--muted);opacity:.55;cursor:not-allowed}
 .dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto;display:inline-block}
 main{padding:22px 0 60px}
 section{padding:22px 0;border-top:1px solid var(--rule)}
@@ -129,7 +136,7 @@ footer{border-top:1px solid var(--rule);padding:16px 0 30px;font-size:12.5px;col
 <body>
 <header class="top"><div class="wrap"><h1 id="title">Account Evaluator</h1><div class="asof" id="asof"></div></div></header>
 <nav class="tabs"><div class="wrap" role="tablist" id="tabs"></div></nav>
-<div class="scope" id="scopebar" hidden><div class="wrap" id="scope"></div></div>
+<div class="scope" id="scopebar" hidden><div class="wrap" id="scope"></div><div class="wrap" id="range"></div></div>
 <main><div class="wrap" id="main"></div></main>
 <footer><div class="wrap">Figures come from the statement data loaded on this device and stay in this browser. Index returns are published totals with no fees. This is a record-keeping tool, not investment advice.</div></footer>
 <div class="tip" id="tip" hidden></div>
@@ -137,11 +144,11 @@ footer{border-top:1px solid var(--rule);padding:16px 0 30px;font-size:12.5px;col
 <script>
 'use strict';
 /* ---------- built-in reference data (public figures; all editable on the Data tab) ---------- */
-// Total return, in percent, for the period ENDING on each date (calendar year, or year to date for a mid-year date).
+// Total return, in percent, from January 1 to each date: a full calendar year at Dec 31, year to date otherwise.
 const DEFAULT_BENCH={
-  '2019-12-31':{sp:31.49,agg:8.72},'2020-12-31':{sp:18.40,agg:7.51},'2021-12-31':{sp:28.71,agg:-1.54},
-  '2022-12-31':{sp:-18.11,agg:-13.01},'2023-12-31':{sp:26.29,agg:5.53},'2024-12-31':{sp:25.02,agg:1.25},
-  '2025-12-31':{sp:17.88,agg:7.30},'2026-09-30':{sp:12.75,agg:-2.91}
+  '2019-12-31':{sp:31.49,agg:8.72},'2020-12-31':{sp:18.40,agg:7.51},'2021-09-30':{sp:15.92,agg:-1.55},'2021-12-31':{sp:28.71,agg:-1.54},
+  '2022-12-31':{sp:-18.11,agg:-13.01},'2023-09-30':{sp:13.07,agg:-1.21},'2023-12-31':{sp:26.29,agg:5.53},'2024-12-31':{sp:25.02,agg:1.25},
+  '2025-09-30':{sp:14.83,agg:6.13},'2025-12-31':{sp:17.88,agg:7.30},'2026-09-30':{sp:12.75,agg:-2.91}
 };
 const CLASSES=['US equity','Intl equity','Bonds','Cash','Crypto','Preferred','Other'];
 const CLASS_COLOR={'US equity':'--s1','Intl equity':'--s2','Bonds':'--s3','Cash':'--s4','Crypto':'--s5','Preferred':'--s6','Other':'--s7'};
@@ -166,6 +173,7 @@ const BUCKET_NAME={'pre-tax':'Pre-tax (taxed when withdrawn)','Roth':'Roth (tax-
 const BUCKET_COLOR={'pre-tax':'--s1','Roth':'--s3','taxable':'--s2'};
 const ACCT_COLORS=['--s1','--s2','--s3','--s7','--s5','--s6','--s4','--s8'];
 const STORE='accountEvaluator.v1';
+const RANGES=[['ytd','YTD'],['1y','1 year'],['3y','3 years'],['5y','5 years'],['max','Max']];
 const TABS=[['overview','Overview'],['returns','Returns'],['bench','Benchmarks'],['alloc','Allocation & fees'],['data','Data']];
 
 /* ---------- small helpers ---------- */
@@ -202,7 +210,7 @@ const sum=a=>a.reduce((x,y)=>x+(+y||0),0);
 const num=v=>{ const n=typeof v==='number'?v:parseFloat(String(v??'').replace(/[$,\s]/g,'')); return isFinite(n)?n:0; };
 const MIN='−', DASH='—';
 function fmt$(v,d=0){ if(v==null||!isFinite(v)) return DASH; const a=Math.abs(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}); return (v<0&&+Math.abs(v).toFixed(d)!==0?MIN:'')+'$'+a; }
-function fmtK(v){ const a=Math.abs(v),g=v<0?MIN:''; if(a>=1e6) return g+'$'+(a/1e6).toFixed(a>=1e7?0:1).replace(/\.0$/,'')+'M'; if(a>=1e4) return g+'$'+Math.round(a/1e3)+'K'; if(a>=1e3) return g+'$'+(a/1e3).toFixed(1).replace(/\.0$/,'')+'K'; return g+'$'+Math.round(a); }
+function fmtK(v){ const a=Math.abs(v),g=v<0?MIN:''; if(a>=1e6) return g+'$'+(a/1e6).toFixed(a>=1e7?0:1).replace(/\.0$/,'')+'M'; if(a>=1e5) return g+'$'+Math.round(a/1e3)+'K'; if(a>=1e3) return g+'$'+(a/1e3).toFixed(1).replace(/\.0$/,'')+'K'; return g+'$'+Math.round(a); }
 function fmtPct(v,d=1,signed=false){ if(v==null||!isFinite(v)) return DASH; const z=+Math.abs(v*100).toFixed(d)===0; return (v<0&&!z?MIN:(signed&&v>0&&!z?'+':''))+Math.abs(v*100).toFixed(d)+'%'; }
 const fmtPts=(v,d=1)=> v==null||!isFinite(v)?DASH:(v<0?MIN:'+')+Math.abs(v*100).toFixed(d)+' pts';
 const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -212,13 +220,14 @@ const dLong=d=>`${MON[+d.slice(5,7)-1]} ${+d.slice(8,10)}, ${d.slice(0,4)}`;
 const dPoint=d=>isYE(d)?`End of ${d.slice(0,4)}`:dLong(d);                       // a balance date
 const dPointShort=d=>isYE(d)?`'${d.slice(2,4)}`:`${+d.slice(5,7)}/${d.slice(2,4)}`;
 // A period: a calendar year, a year to date, or (when statements are closer together) the two dates.
-const pName=(d,from)=>{ if(from&&!(isYE(from)&&+d.slice(0,4)===+from.slice(0,4)+1)) return `${dLong(from)} to ${dLong(d)}`; return isYE(d)?d.slice(0,4):`${d.slice(0,4)} to ${MON[+d.slice(5,7)-1]} ${+d.slice(8,10)}`; };
+const pName=(d,from)=>{ if(from&&!(isYE(from)&&+d.slice(0,4)===+from.slice(0,4)+1)) return `${from.slice(0,4)===d.slice(0,4)?`${MON[+from.slice(5,7)-1]} ${+from.slice(8,10)}`:dLong(from)} to ${dLong(d)}`; return isYE(d)?d.slice(0,4):`${d.slice(0,4)} to ${MON[+d.slice(5,7)-1]} ${+d.slice(8,10)}`; };
 const wholeYear=r=>isYE(r.to)&&isYE(r.from)&&+r.to.slice(0,4)===+r.from.slice(0,4)+1;
-const years=(a,b)=>(T(b)-T(a))/(365.25*864e5);
+// Whole calendar years plus the leftover days, so Sep 30 to Sep 30 counts as exactly one year.
+function years(a,b){ let n=+b.slice(0,4)-+a.slice(0,4); if(b.slice(5)<a.slice(5)) n--; if(n<0) n=0; const y=+a.slice(0,4)+n,m=+a.slice(5,7),dd=Math.min(+a.slice(8,10),new Date(Date.UTC(y,m,0)).getUTCDate()); return n+(T(b)-Date.UTC(y,m-1,dd))/(365.25*864e5); }
 const signCls=v=>v==null||!isFinite(v)||Math.abs(v)<5e-5?'':(v<0?'down':'up');
 
 /* ---------- state & storage ---------- */
-const state={data:null,scope:'all',tab:'overview',openAcct:new Set(),openHold:new Set(),msg:''};
+const state={data:null,scope:'all',range:'max',tab:'overview',openAcct:new Set(),openHold:new Set(),msg:''};
 function normalize(d){
   if(!d||typeof d!=='object'||!Array.isArray(d.accounts)) throw new Error('That file has no "accounts" list, so it is not an Account Evaluator data file.');
   const out={schema:1,title:String(d.title||''),example:!!d.example,accounts:[],funds:{},benchmarks:{}};
@@ -242,10 +251,10 @@ function normalize(d){
   for(const [k,v] of Object.entries(d.benchmarks||{})) if(/^\d{4}-\d{2}-\d{2}$/.test(k)) out.benchmarks[k]={sp:v.sp==null||v.sp===''?null:num(v.sp),agg:v.agg==null||v.agg===''?null:num(v.agg)};
   return out;
 }
-function save(){ try{ if(state.data) localStorage.setItem(STORE,JSON.stringify(state.data)); localStorage.setItem(STORE+'.ui',JSON.stringify({scope:state.scope,tab:state.tab})); }catch(e){} }
+function save(){ try{ if(state.data) localStorage.setItem(STORE,JSON.stringify(state.data)); localStorage.setItem(STORE+'.ui',JSON.stringify({scope:state.scope,tab:state.tab,range:state.range})); }catch(e){} }
 function load(){
   try{ const raw=localStorage.getItem(STORE); if(raw) state.data=normalize(JSON.parse(raw)); }catch(e){ state.data=null; }
-  try{ const ui=JSON.parse(localStorage.getItem(STORE+'.ui')||'{}'); if(TABS.some(t=>t[0]===ui.tab)) state.tab=ui.tab; if(ui.scope) state.scope=ui.scope; }catch(e){}
+  try{ const ui=JSON.parse(localStorage.getItem(STORE+'.ui')||'{}'); if(TABS.some(t=>t[0]===ui.tab)) state.tab=ui.tab; if(ui.scope) state.scope=ui.scope; if(RANGES.some(r=>r[0]===ui.range)) state.range=ui.range; }catch(e){}
 }
 function setData(obj,msg){ state.data=normalize(obj); state.scope='all'; state.msg=msg||''; save(); render(); }
 function exportText(){ return JSON.stringify(state.data,null,1); }
@@ -290,30 +299,76 @@ function summarize(rows){
   return {cum:cum-1,years:y,ann:y>0?Math.pow(cum,1/y)-1:null,flow:sum(rows.map(r=>r.flow)),gain:sum(rows.map(r=>r.gain)),
     start:rows[0].start,end:rows[rows.length-1].end,from:rows[0].from,to:rows[rows.length-1].to};
 }
-function benchRet(date,key){
+// Statements in the same calendar year are linked into one row, so extra mid-year balances never split a year.
+function byYear(rows){
+  const out=[];
+  for(const r of rows){ const g=out[out.length-1],y=r.to.slice(0,4);
+    if(g&&g.year===y){ g.to=r.to; g.end=r.end; g.flow+=r.flow; g.contrib+=r.contrib; g.withdraw+=r.withdraw; g.gain+=r.gain; g.ret=g.ret==null||r.ret==null?null:(1+g.ret)*(1+r.ret)-1; }
+    else out.push({...r,year:y}); }
+  return out;
+}
+function shiftYears(d,n){ const y=+d.slice(0,4)-n,m=+d.slice(5,7),dd=Math.min(+d.slice(8,10),new Date(Date.UTC(y,m,0)).getUTCDate()); return `${y}-${String(m).padStart(2,'0')}-${String(dd).padStart(2,'0')}`; }
+// Where a comparison range starts: the balance date closest to the target, if one sits within a month of it.
+function rangeStart(c,key,n){
+  const last=c.dates[c.dates.length-1];
+  if(key==='max') return {ok:true,from:c.dates[0]};
+  const target=key==='ytd'?`${+last.slice(0,4)-1}-12-31`:shiftYears(last,+key[0]); let best=null;
+  c.pts.forEach(p=>{ if(p.asOf>=last||p.n<n) return; const gap=Math.abs(T(p.asOf)-T(target))/864e5; if(gap<=31&&(!best||gap<best.gap)) best={d:p.asOf,gap}; });
+  return best?{ok:true,from:best.d}:{ok:false,target};
+}
+function windowed(accts){
+  const c=combine(accts); let key=state.range,st=rangeStart(c,key,accts.length);
+  if(!st.ok){ key='max'; st=rangeStart(c,'max'); }
+  const i0=c.dates.indexOf(st.from);
+  return {c,key,from:st.from,to:c.dates[c.dates.length-1],dates:c.dates.slice(i0),pts:c.pts.slice(i0),rows:c.rows.filter(r=>r.from>=st.from)};
+}
+const longEnough=sm=>sm.years>1.0001;      // up to a year, show the plain return instead of a yearly rate
+const rateOf=(o,sm)=>o?(longEnough(sm)?o.ann:o.cum):null;
+// Index figures are stored as year-to-date total return at each date (a full year at Dec 31).
+function ytd(date,key){
   const b=benchTable()[date]; if(!b) return null;
   if(key==='sp') return b.sp==null?null:b.sp/100;
   if(key==='agg') return b.agg==null?null:b.agg/100;
-  return b.sp==null||b.agg==null?null:(0.6*b.sp+0.4*b.agg)/100;
+  return b.sp==null||b.agg==null?null:(0.6*b.sp+0.4*b.agg)/100;   // 60/40, reset to those weights each January 1
 }
+// How much an index grew between two dates (1.10 = up 10%), or null if a figure it needs is missing.
+function benchFactor(a,b,key){
+  const o=isYE(a)?+a.slice(0,4):+a.slice(0,4)-1,yb=+b.slice(0,4); let la=1,lb=1;
+  if(!isYE(a)){ const v=ytd(a,key); if(v==null) return null; la=1+v; }
+  for(let y=o+1;y<yb;y++){ const v=ytd(`${y}-12-31`,key); if(v==null) return null; lb*=1+v; }
+  if(yb>o){ const v=ytd(b,key); if(v==null) return null; lb*=1+v; }
+  return lb/la;
+}
+const tidy=v=>Math.round(v*1e9)/1e9;      // clears floating-point dust so 1.25% does not print as 1.2%
+const benchRet=(r,key)=>{ const f=benchFactor(r.from,r.to,key); return f==null?null:tidy(f-1); };
 const BENCH_NAME={sp:'S&P 500',mix:'60/40 mix',agg:'US bonds'};
-// Dollars the same money would be worth at index returns, with the same money in and out.
-function benchTrack(accts,key){
+// Dollars the same money would be worth at index returns from a start date, with the same money in and out.
+function benchTrack(accts,key,from){
   const tot={},bad=new Set();
   for(const a of accts){
-    let v=a.periods[0].end; tot[a.periods[0].asOf]=(tot[a.periods[0].asOf]||0)+v;
-    for(let i=1;i<a.periods.length;i++){
-      const p=a.periods[i],r=benchRet(p.asOf,key);
-      if(r==null||v==null){ v=null; bad.add(p.asOf); continue; }
-      v=v*(1+r)+flowOf(p)*Math.sqrt(1+r); tot[p.asOf]=(tot[p.asOf]||0)+v;
+    const ps=a.periods.filter(p=>p.asOf>=from); if(!ps.length) continue;
+    let v=ps[0].end; tot[ps[0].asOf]=(tot[ps[0].asOf]||0)+v;
+    for(let i=1;i<ps.length;i++){
+      const p=ps[i],f=benchFactor(ps[i-1].asOf,p.asOf,key);
+      if(f==null||v==null){ v=null; bad.add(p.asOf); continue; }
+      v=v*f+flowOf(p)*Math.sqrt(f); tot[p.asOf]=(tot[p.asOf]||0)+v;
     }
   }
   for(const d of bad) tot[d]=null;
   return tot;
 }
 function benchSummary(rows,key){
-  let cum=1; for(const r of rows){ const b=benchRet(r.to,key); if(b==null) return null; cum*=1+b; }
-  const y=years(rows[0].from,rows[rows.length-1].to); return {cum:cum-1,ann:y>0?Math.pow(cum,1/y)-1:null};
+  if(!rows.length) return null;
+  const f=benchFactor(rows[0].from,rows[rows.length-1].to,key); if(f==null) return null;
+  const y=years(rows[0].from,rows[rows.length-1].to); return {cum:tidy(f-1),ann:y>0?tidy(Math.pow(f,1/y)-1):null};
+}
+// Every date the index table needs a figure for: each balance date plus each Dec 31 in between.
+function benchDates(accts,from){
+  const c=combine(accts); if(c.dates.length<2) return [];
+  const first=from||c.dates[0],last=c.dates[c.dates.length-1],set=new Set(c.dates.filter(d=>d>first));
+  if(!isYE(first)) set.add(first);
+  for(let y=+first.slice(0,4)+1;y<+last.slice(0,4);y++) set.add(`${y}-12-31`);
+  return [...set].sort();
 }
 const classOf=sym=>sym==='CASH'?'Cash':((funds()[sym]||{}).class||'Other');
 const erOf=sym=>sym==='CASH'?0:((funds()[sym]||{}).er||0);
@@ -395,11 +450,11 @@ function chartLine(el,{dates,series,fmt,tick,label}){   // lines over time with 
   const wide=(el.clientWidth||320)>=620;
   const m={t:14,r:wide?96:14,b:24,l:46},H=260,{svg,W,pw,ph}=frame(el,H,m);
   const all=series.flatMap(q=>q.values).filter(v=>v!=null);
-  const ax=axis(Math.min(...all)>0&&Math.min(...all)<Math.max(...all)*0.5?0:Math.min(...all),Math.max(...all)),t0=T(dates[0]),t1=T(dates[dates.length-1]);
+  const ax=axis(Math.min(...all)>0&&Math.min(...all)<Math.max(...all)*0.25?0:Math.min(...all),Math.max(...all)),t0=T(dates[0]),t1=T(dates[dates.length-1]);
   const x=d=>m.l+(t1===t0?0:(T(d)-t0)/(t1-t0))*pw,y=v=>m.t+ph-((v-ax.lo)/(ax.hi-ax.lo))*ph;
   grid(svg,ax,y,m,W,tick,false);
-  const step=Math.ceil(dates.length/Math.max(2,Math.floor(pw/34)));
-  dates.forEach((d,i)=>{ if((dates.length-1-i)%step===0) svg.append(s('text',{x:x(d),y:H-7,'text-anchor':i===dates.length-1&&!wide?'end':'middle',text:dPointShort(d)})); });
+  const order=[dates.length-1,0,...dates.map((d,i)=>i).filter(i=>isYE(dates[i])),...dates.map((d,i)=>i)],placed=[];
+  for(const i of order){ const xx=x(dates[i]); if(placed.some(p=>Math.abs(p-xx)<36)) continue; placed.push(xx); svg.append(s('text',{x:xx,y:H-7,'text-anchor':i===dates.length-1&&!wide?'end':'middle',text:dPointShort(dates[i])})); }
   const cross=s('line',{y1:m.t,y2:m.t+ph,style:{stroke:cv('--axis')},visibility:'hidden'}); svg.append(cross);
   const ends=[];
   for(const q of series){
@@ -467,17 +522,18 @@ function viewOverview(){
       h('div',null,h('span',{class:'k',text:'Starting balance'}),h('span',{class:'v',text:fmt$(sm.start)}),h('span',{class:'n',text:dPoint(sm.from)+(c.rows[0].derived?', estimated':'')})),
       h('div',null,h('span',{class:'k',text:'Money added, net of withdrawals'}),h('span',{class:'v',text:fmt$(sm.flow)}),h('span',{class:'n',text:Math.abs(sm.flow)<0.005?'No contributions or withdrawals':'Contributions minus withdrawals'})),
       h('div',null,h('span',{class:'k',text:'Investment growth'}),h('span',{class:'v '+signCls(sm.gain),text:fmt$(sm.gain)}),h('span',{class:'n',text:'Price changes plus reinvested dividends'})))));
-  const ser=accts.map(a=>{ const m=Object.fromEntries(a.periods.map(p=>[p.asOf,p.end])); return {name:a.label,color:acctColor(a),values:c.dates.map(d=>m[d]||0)}; });
+  const shown=c.pts.filter((p,i)=>isYE(p.asOf)||!i||i===c.pts.length-1),sd=shown.map(p=>p.asOf);
+  const ser=accts.map(a=>{ const m=Object.fromEntries(a.periods.map(p=>[p.asOf,p.end])); return {name:a.label,color:acctColor(a),values:sd.map(d=>m[d]||0)}; });
   out.push(section('Balance at each statement',accts.length>1?'Each column is the combined balance, split by account.':null,
     accts.length>1?legend(ser):null,
-    fig(el=>chartStack(el,{cats:c.dates.map(dPointShort),tips:c.dates.map(dPoint),series:ser,label:'Balance at each statement date'}),
-      table([{h:'Date',l:1},...accts.map(a=>({h:a.label})),...(accts.length>1?[{h:'Total'}]:[])],c.dates.map((d,i)=>[dPoint(d),...ser.map(q=>fmt$(q.values[i])),...(accts.length>1?[fmt$(c.pts[i].value)]:[])])))));
+    fig(el=>chartStack(el,{cats:sd.map(dPointShort),tips:sd.map(dPoint),series:ser,label:'Balance at each statement date'}),
+      table([{h:'Date',l:1},...accts.map(a=>({h:a.label})),...(accts.length>1?[{h:'Total'}]:[])],sd.map((d,i)=>[dPoint(d),...ser.map(q=>fmt$(q.values[i])),...(accts.length>1?[fmt$(shown[i].value)]:[])])))));
   if(accts.length>1){
-    const lastRow=c.rows[c.rows.length-1];
+    const lastRow=byYear(c.rows).pop();
     out.push(section('The accounts side by side',null,table(
       [{h:'Account',l:1,w:1},{h:'Balance'},{h:'Share'},{h:'Return per year'},{h:pName(lastRow.to,lastRow.from)},{h:'S&P 500 per year'}],
       accts.map(a=>{ const r=combine([a]),q=summarize(r.rows),lp=a.periods[a.periods.length-1],b=q&&benchSummary(r.rows,'sp');
-        return [{v:h('span',null,h('i',{class:'dot',style:{background:cv(acctColor(a)),'margin-right':'7px'}}),a.label),sub:BUCKET_NAME[a.taxBucket]},fmt$(lp.end),fmtPct(lp.end/last.value,0),pctCell(q&&q.ann),pctCell(r.rows.length?r.rows[r.rows.length-1].ret:null),pctCell(b&&b.ann)]; }),
+        return [{v:h('span',null,h('i',{class:'dot',style:{background:cv(acctColor(a)),'margin-right':'7px'}}),a.label),sub:BUCKET_NAME[a.taxBucket]},fmt$(lp.end),fmtPct(lp.end/last.value,0),pctCell(q&&q.ann),pctCell(r.rows.length?byYear(r.rows).pop().ret:null),pctCell(b&&b.ann)]; }),
       [['All accounts',fmt$(last.value),'100%',pctCell(sm.ann),pctCell(lastRow.ret),pctCell((benchSummary(c.rows,'sp')||{}).ann)]])));
   }
   const notes=insights(accts,c,sm);
@@ -501,66 +557,76 @@ function insights(accts,c,sm){
   return out;
 }
 
+const spanText=w=>`${dLong(w.from)} to ${dLong(w.to)}`;
+function rangeNote(accts){   // tells the reader what a greyed-out range is waiting for
+  const c=combine(accts),miss=RANGES.map(([k,name])=>({name,st:rangeStart(c,k,accts.length)})).filter(o=>!o.st.ok&&o.st.target>=c.dates[0]);
+  return miss.length?h('p',{class:'note',text:miss.map(o=>`${o.name} needs a balance for ${dLong(o.st.target)}`).join('. ')+'. Add it on the Data tab.'}):null;
+}
 function viewReturns(){
-  const accts=scopeAccts(),c=combine(accts),sm=summarize(c.rows),out=[];
+  const accts=scopeAccts(),w=windowed(accts),sm=summarize(w.rows),out=[];
   if(!sm) return [section('Only one statement so far','Add a second statement date on the Data tab to see returns.')];
-  const per=accts.map(a=>({a,c:combine([a])})),ends=c.rows.map(r=>r.to);
-  const ser=per.map(o=>({name:o.a.label,color:acctColor(o.a),values:ends.map(d=>{ const r=o.c.rows.find(x=>x.to===d); return r?r.ret:null; })}));
-  const derived=c.rows.some(r=>r.derived),star=r=>r.derived?' *':'';
+  const groups=byYear(w.rows),per=accts.map(a=>{ const rows=combine([a]).rows.filter(r=>r.from>=w.from); return {a,rows,g:byYear(rows),sm:summarize(rows)}; });
+  const ser=per.map(o=>({name:o.a.label,color:acctColor(o.a),values:groups.map(g=>{ const x=o.g.find(q=>q.year===g.year); return x?x.ret:null; })}));
+  const derived=groups.some(g=>g.derived),star=g=>g.derived?' *':'',name=g=>pName(g.to,g.from),odd=groups.filter(g=>!wholeYear(g)),yr=longEnough(sm);
   let tbl;
   if(accts.length>1){
     tbl=table([{h:'Period',l:1},...accts.map(a=>({h:a.label})),{h:'All accounts'}],
-      c.rows.map((r,i)=>[pName(r.to,r.from)+star(r),...ser.map(q=>pctCell(q.values[i])),pctCell(r.ret)]),
-      [['Per year',...per.map(o=>pctCell((summarize(o.c.rows)||{}).ann)),pctCell(sm.ann)],['Total',...per.map(o=>pctCell((summarize(o.c.rows)||{}).cum,0)),pctCell(sm.cum,0)]]);
+      groups.map((g,i)=>[name(g)+star(g),...ser.map(q=>pctCell(q.values[i])),pctCell(g.ret)]),
+      [...(yr?[['Per year',...per.map(o=>pctCell(o.sm&&o.sm.ann)),pctCell(sm.ann)]]:[]),['Total',...per.map(o=>pctCell(o.sm&&o.sm.cum,yr?0:1)),pctCell(sm.cum,yr?0:1)]]);
   }else{
     tbl=table([{h:'Period',l:1},{h:'Start'},{h:'Money in'},{h:'Money out'},{h:'Investment gain'},{h:'End'},{h:'Return'}],
-      c.rows.map(r=>[pName(r.to,r.from)+star(r),fmt$(r.start),fmt$(r.contrib),fmt$(r.withdraw),{v:fmt$(r.gain),cls:r.gain<0?'down':''},fmt$(r.end),pctCell(r.ret)]),
-      [['Whole stretch',fmt$(sm.start),fmt$(sum(c.rows.map(r=>r.contrib))),fmt$(sum(c.rows.map(r=>r.withdraw))),fmt$(sm.gain),fmt$(sm.end),{v:fmtPct(sm.ann)+' a year'}]]);
+      groups.map(g=>[name(g)+star(g),fmt$(g.start),fmt$(g.contrib),fmt$(g.withdraw),{v:fmt$(g.gain),cls:g.gain<0?'down':''},fmt$(g.end),pctCell(g.ret)]),
+      [['Whole stretch',fmt$(sm.start),fmt$(sum(groups.map(g=>g.contrib))),fmt$(sum(groups.map(g=>g.withdraw))),fmt$(sm.gain),fmt$(sm.end),{v:yr?fmtPct(sm.ann)+' a year':fmtPct(sm.cum)}]]);
   }
-  out.push(section('Return in each period',`${scopeName()}, after taking out any money added or withdrawn.`,
+  out.push(section('Return in each period',`${scopeName()}, ${spanText(w)}, after taking out any money added or withdrawn.`,
     ser.length>1?legend(ser):null,
-    fig(el=>chartGroup(el,{cats:ends.map(dPointShort),tips:c.rows.map(r=>pName(r.to,r.from)),series:ser,label:'Return in each period'})),
+    fig(el=>chartGroup(el,{cats:groups.map(g=>(isYE(g.to)&&!wholeYear(g)?'late ':'')+dPointShort(g.to)),tips:groups.map(name),series:ser,label:'Return in each period'})),
     tbl,
-    c.rows.some(r=>!wholeYear(r))?h('p',{class:'note',text:`${c.rows.filter(r=>!wholeYear(r)).map(r=>pName(r.to,r.from)).join(' and ')} ${c.rows.filter(r=>!wholeYear(r)).length>1?'are not full years':'is not a full year'}, so compare with the full years carefully.`}):null,
-    derived?h('p',{class:'note',text:'* The starting balance for this period was not on a statement. It was worked out from the month-by-month chart on the first statement, so this return can be off by about a tenth of a point.'}):null));
-  const idx=per.map(o=>{ const v={}; let g=10000; if(o.c.rows.length){ v[o.c.rows[0].from]=g; for(const r of o.c.rows){ g*=1+(r.ret||0); v[r.to]=g; } } return {name:o.a.label,color:acctColor(o.a),values:c.dates.map(d=>v[d]==null?null:v[d])}; });
-  out.push(section('Growth of $10,000',accts.length>1?'Puts accounts of different sizes on the same footing: what $10,000 in each would have become.':'What $10,000 in this account at the start would have become.',
+    odd.length&&odd.length<groups.length?h('p',{class:'note',text:`${odd.map(name).join(' and ')} ${odd.length>1?'are not full years':'is not a full year'}, so compare with the full years carefully.`}):null,
+    derived?h('p',{class:'note',text:'* The starting balance for this period was not printed on a statement. It was worked out from the month-by-month chart on a later statement, so this return can be off by about a tenth of a point.'}):null,
+    rangeNote(accts)));
+  const idx=per.map(o=>{ const v={[w.from]:10000}; let g=10000; for(const r of o.rows){ g*=1+(r.ret||0); v[r.to]=g; } return {name:o.a.label,color:acctColor(o.a),values:w.dates.map(d=>o.rows.length&&v[d]!=null?v[d]:null)}; });
+  out.push(section('Growth of $10,000',accts.length>1?`Puts accounts of different sizes on the same footing: what $10,000 in each on ${dLong(w.from)} would have become.`:`What $10,000 in this account on ${dLong(w.from)} would have become.`,
     idx.length>1?legend(idx,true):null,
-    fig(el=>chartLine(el,{dates:c.dates,series:idx,fmt:v=>fmt$(v),tick:fmtK,label:'Growth of $10,000 in each account'}),
-      table([{h:'Date',l:1},...idx.map(q=>({h:q.name}))],c.dates.map((d,i)=>[dPoint(d),...idx.map(q=>fmt$(q.values[i]))])))));
-  out.push(section('How returns are worked out',null,h('p',{class:'small',text:'Return for a period = (ending balance − starting balance − net money added) ÷ (starting balance + half the net money added). Money added or withdrawn is treated as arriving mid-period. The yearly figure links every period together and converts it to a per-year rate, so it does not depend on how big the account was.'})));
+    fig(el=>chartLine(el,{dates:w.dates,series:idx,fmt:v=>fmt$(v),tick:fmtK,label:'Growth of $10,000 in each account'}),
+      table([{h:'Date',l:1},...idx.map(q=>({h:q.name}))],w.dates.map((d,i)=>[dPoint(d),...idx.map(q=>fmt$(q.values[i]))])))));
+  out.push(section('How returns are worked out',null,h('p',{class:'small',text:'Return for a period = (ending balance − starting balance − net money added) ÷ (starting balance + half the net money added). Money added or withdrawn is treated as arriving mid-period. The yearly figure links every period together and converts it to a per-year rate, so it does not depend on how big the account was. Stretches of a year or less show the plain return, not a yearly rate.'})));
   return out;
 }
 
 function viewBench(){
-  const accts=scopeAccts(),c=combine(accts),sm=summarize(c.rows),out=[];
+  const accts=scopeAccts(),w=windowed(accts),sm=summarize(w.rows),out=[];
   if(!sm) return [section('Only one statement so far','Add a second statement date on the Data tab to compare with an index.')];
-  const missing=c.rows.filter(r=>benchRet(r.to,'mix')==null).map(r=>pName(r.to,r.from));
-  const tr={sp:benchTrack(accts,'sp'),mix:benchTrack(accts,'mix')},last=c.dates[c.dates.length-1],act=c.pts[c.pts.length-1].value;
+  const groups=byYear(w.rows),yr=longEnough(sm),unit=yr?' a year':' return',name=g=>pName(g.to,g.from);
+  const missing=benchDates(accts,w.from).filter(d=>ytd(d,'mix')==null).map(d=>isYE(d)?d.slice(0,4):dLong(d));
+  const tr={sp:benchTrack(accts,'sp',w.from),mix:benchTrack(accts,'mix',w.from)},last=w.to,act=w.pts[w.pts.length-1].value;
   const col=accts.length===1?acctColor(accts[0]):'--s1';
-  const ser=[{name:scopeName(),color:col,strong:true,values:c.pts.map(p=>p.value)},{name:'Same money in S&P 500',short:'S&P 500',color:'--b1',values:c.dates.map(d=>tr.sp[d]==null?null:tr.sp[d])},{name:'Same money in 60/40 mix',short:'60/40 mix',color:'--b2',values:c.dates.map(d=>tr.mix[d]==null?null:tr.mix[d])}];
-  const bs={sp:benchSummary(c.rows,'sp'),mix:benchSummary(c.rows,'mix'),agg:benchSummary(c.rows,'agg')};
+  const ser=[{name:scopeName(),color:col,strong:true,values:w.pts.map(p=>p.value)},{name:'Same money in S&P 500',short:'S&P 500',color:'--b1',values:w.dates.map(d=>tr.sp[d]==null?null:tr.sp[d])},{name:'Same money in 60/40 mix',short:'60/40 mix',color:'--b2',values:w.dates.map(d=>tr.mix[d]==null?null:tr.mix[d])}];
+  const bs={sp:benchSummary(w.rows,'sp'),mix:benchSummary(w.rows,'mix'),agg:benchSummary(w.rows,'agg')},R=o=>rateOf(o,sm);
   const gap=k=>tr[k][last]==null?null:act-tr[k][last];
   const gapNote=k=>{ const g=gap(k); return g==null?'Index return missing':`${g>=0?'Ahead':'Behind'} by ${fmt$(Math.abs(g))}`; };
-  out.push(section('Against the same money in an index','What the starting balance would be worth today at index returns, with the same money going in and out on the same schedule.',
+  out.push(section('Against the same money in an index',`What the ${fmt$(sm.start)} balance on ${dLong(w.from)} would be worth on ${dLong(w.to)} at index returns, with the same money going in and out on the same schedule.`,
     missing.length?h('p',{class:'banner',text:`No index return entered for ${missing.join(', ')}. Add it under Index returns on the Data tab.`}):null,
     h('div',{class:'facts'},
-      h('div',null,h('span',{class:'k',text:scopeName()}),h('span',{class:'v',text:fmt$(act)}),h('span',{class:'n',text:fmtPct(sm.ann)+' a year'})),
-      h('div',null,h('span',{class:'k',text:'In the S&P 500'}),h('span',{class:'v',text:fmt$(tr.sp[last])}),h('span',{class:'n',text:`${fmtPct(bs.sp&&bs.sp.ann)} a year. ${gapNote('sp')}`})),
-      h('div',null,h('span',{class:'k',text:'In a 60/40 mix'}),h('span',{class:'v',text:fmt$(tr.mix[last])}),h('span',{class:'n',text:`${fmtPct(bs.mix&&bs.mix.ann)} a year. ${gapNote('mix')}`}))),
+      h('div',null,h('span',{class:'k',text:scopeName()}),h('span',{class:'v',text:fmt$(act)}),h('span',{class:'n',text:fmtPct(R(sm))+unit})),
+      h('div',null,h('span',{class:'k',text:'In the S&P 500'}),h('span',{class:'v',text:fmt$(tr.sp[last])}),h('span',{class:'n',text:`${fmtPct(R(bs.sp))}${unit}. ${gapNote('sp')}`})),
+      h('div',null,h('span',{class:'k',text:'In a 60/40 mix'}),h('span',{class:'v',text:fmt$(tr.mix[last])}),h('span',{class:'n',text:`${fmtPct(R(bs.mix))}${unit}. ${gapNote('mix')}`}))),
     h('div',{style:{height:'16px'}}),legend(ser,true),
-    fig(el=>chartLine(el,{dates:c.dates,series:ser,fmt:v=>fmt$(v),tick:fmtK,label:'Actual balance against index alternatives'}),
-      table([{h:'Date',l:1},{h:'Actual'},{h:'S&P 500'},{h:'60/40 mix'}],c.dates.map((d,i)=>[dPoint(d),fmt$(c.pts[i].value),fmt$(tr.sp[d]),fmt$(tr.mix[d])])))));
+    fig(el=>chartLine(el,{dates:w.dates,series:ser,fmt:v=>fmt$(v),tick:fmtK,label:'Actual balance against index alternatives'}),
+      table([{h:'Date',l:1},{h:'Actual'},{h:'S&P 500'},{h:'60/40 mix'}],w.dates.map((d,i)=>[dPoint(d),fmt$(w.pts[i].value),fmt$(tr.sp[d]),fmt$(tr.mix[d])]))),
+    w.rows[0].derived?h('p',{class:'note',text:`The ${dLong(w.from)} starting balance was worked out from the month-by-month chart on a later statement, so these figures can be off by about a tenth of a point.`}):null,
+    rangeNote(accts)));
   const diff=(a,b)=>a==null||b==null?{v:DASH}:{v:fmtPts(a-b),cls:a-b<-5e-5?'down':''};
+  const foot=(lab,f,d)=>[lab,pctCell(f(sm),d),pctCell(f(bs.sp||{}),d),pctCell(f(bs.mix||{}),d),pctCell(f(bs.agg||{}),d),diff(f(sm),f(bs.sp||{})),diff(f(sm),f(bs.mix||{}))];
   out.push(section('Period by period',null,table(
     [{h:'Period',l:1},{h:scopeName()},{h:'S&P 500'},{h:'60/40 mix'},{h:'US bonds'},{h:'vs S&P 500'},{h:'vs 60/40'}],
-    c.rows.map(r=>{ const a=benchRet(r.to,'sp'),b=benchRet(r.to,'mix'); return [pName(r.to,r.from)+(r.derived?' *':''),pctCell(r.ret),pctCell(a),pctCell(b),pctCell(benchRet(r.to,'agg')),diff(r.ret,a),diff(r.ret,b)]; }),
-    [['Per year',pctCell(sm.ann),pctCell(bs.sp&&bs.sp.ann),pctCell(bs.mix&&bs.mix.ann),pctCell(bs.agg&&bs.agg.ann),diff(sm.ann,bs.sp&&bs.sp.ann),diff(sm.ann,bs.mix&&bs.mix.ann)]])));
-  if(accts.length>1) out.push(section('Each account against the indexes','Yearly return over the whole stretch.',table(
-    [{h:'Account',l:1},{h:'Return per year'},{h:'vs S&P 500'},{h:'vs 60/40'},{h:'Dollars vs S&P 500'}],
-    accts.map(a=>{ const r=combine([a]),q=summarize(r.rows); if(!q) return [a.label,DASH,DASH,DASH,DASH]; const b1=benchSummary(r.rows,'sp'),b2=benchSummary(r.rows,'mix'),t=benchTrack([a],'sp')[r.dates[r.dates.length-1]],g=t==null?null:q.end-t;
-      return [a.label,pctCell(q.ann),diff(q.ann,b1&&b1.ann),diff(q.ann,b2&&b2.ann),{v:g==null?DASH:fmt$(g),cls:g<0?'down':''}]; }))));
-  out.push(section('About the indexes',null,h('p',{class:'small',text:'S&P 500 is the index total return with dividends reinvested. US bonds is the Bloomberg US Aggregate Bond Index. The 60/40 mix is 60% S&P 500 and 40% US bonds, reset to those weights at the start of each period. Index figures have no fund fees or trading costs, so a real index fund would land slightly lower. The figures can be edited on the Data tab.'})));
+    groups.map(g=>{ const a=benchRet(g,'sp'),b=benchRet(g,'mix'); return [name(g)+(g.derived?' *':''),pctCell(g.ret),pctCell(a),pctCell(b),pctCell(benchRet(g,'agg')),diff(g.ret,a),diff(g.ret,b)]; }),
+    [...(yr?[foot('Per year',o=>o.ann,1)]:[]),foot('Total',o=>o.cum,1)])));
+  if(accts.length>1) out.push(section('Each account against the indexes',`${yr?'Yearly return':'Return'}, ${spanText(w)}.`,table(
+    [{h:'Account',l:1},{h:yr?'Return per year':'Return'},{h:'vs S&P 500'},{h:'vs 60/40'},{h:'Dollars vs S&P 500'}],
+    accts.map(a=>{ const rows=combine([a]).rows.filter(r=>r.from>=w.from),q=summarize(rows); if(!q) return [a.label,DASH,DASH,DASH,DASH]; const t=benchTrack([a],'sp',w.from)[w.to],g=t==null?null:q.end-t;
+      return [a.label,pctCell(R(q)),diff(R(q),R(benchSummary(rows,'sp'))),diff(R(q),R(benchSummary(rows,'mix'))),{v:g==null?DASH:fmt$(g),cls:g<0?'down':''}]; }))));
+  out.push(section('About the indexes',null,h('p',{class:'small',text:'S&P 500 is the index total return with dividends reinvested. US bonds is the Bloomberg US Aggregate Bond Index. The 60/40 mix is 60% S&P 500 and 40% US bonds, reset to those weights each January 1. Index figures have no fund fees or trading costs, so a real index fund would land slightly lower. The figures can be edited on the Data tab.'})));
   return out;
 }
 
@@ -637,13 +703,13 @@ function viewData(){
           a.periods.push({asOf:nd,end:lp.end,contrib:0,withdraw:0,cash:lp.cash,fees:0,dividends:null,interest:null,derived:false,note:'',holdings:lp.holdings.map(x=>({...x}))}); state.openHold.add(a.id+'|'+nd); commit(); },text:'Add a statement'}),
         h('button',{class:'btn quiet',onclick:()=>{ if(confirm(`Remove ${a.label} and all its statements?`)){ d.accounts.splice(d.accounts.indexOf(a),1); state.scope='all'; commit(); } },text:'Remove this account'})));
   });
-  out.push(section('Accounts and statements','Change a number and everything recalculates. Add a statement copies the last one so only the new figures need typing. When a year-end statement replaces a mid-year one, change the date and figures on the mid-year row instead of adding, so the year stays whole.',acctEds,
+  out.push(section('Accounts and statements','Change a number and everything recalculates. Add a statement copies the last one so only the new figures need typing. Mid-year balances are fine to keep: the yearly tables link them into whole years, and the 1, 3 and 5 year comparisons start from them.',acctEds,
     h('div',{class:'row'},h('button',{class:'btn quiet',onclick:()=>{ const id='acct'+Date.now(); d.accounts.push({id,label:'New account',type:'',owner:'',custodian:'',taxBucket:'pre-tax',periods:[{asOf:(d.accounts[0]?d.accounts[0].periods[0].asOf:'2025-12-31'),end:0,contrib:0,withdraw:0,cash:0,fees:0,dividends:null,interest:null,derived:false,note:'',holdings:[]}]}); state.openAcct.add(id); commit(); },text:'Add an account'}))));
-  const ends=combine(d.accounts).rows.map(r=>[r.to,r.from]),bt=benchTable();
+  const ends=benchDates(d.accounts),bt=benchTable();
   const bIn=(date,key)=>h('input',{type:'number',step:'any',inputmode:'decimal',class:'narrow',value:bt[date]&&bt[date][key]!=null?bt[date][key]:'','aria-label':`${key} ${date}`,onchange:e=>{ const cur={...(bt[date]||{sp:null,agg:null})}; cur[key]=e.target.value===''?null:num(e.target.value); d.benchmarks[date]=cur; commit(); }});
-  out.push(section('Index returns','Total return in percent over each period shown. For a new statement date, look up the figure and type it in.',
-    h('div',{class:'tscroll'},h('table',{class:'edit'},h('thead',null,h('tr',null,h('th',{class:'l',text:'Period'}),h('th',{text:'S&P 500 %'}),h('th',{text:'US bonds %'}))),
-      h('tbody',null,ends.map(([e,f])=>h('tr',null,h('td',{class:'l w',text:pName(e,f)}),h('td',null,bIn(e,'sp')),h('td',null,bIn(e,'agg')))))))));
+  out.push(section('Index returns','Total return in percent from January 1 to each date: the full year at Dec 31, year to date otherwise. For a new statement date, look up the year-to-date figure and type it in.',
+    h('div',{class:'tscroll'},h('table',{class:'edit'},h('thead',null,h('tr',null,h('th',{class:'l',text:'Through'}),h('th',{text:'S&P 500 %'}),h('th',{text:'US bonds %'}))),
+      h('tbody',null,ends.map(e=>h('tr',null,h('td',{class:'l w',text:isYE(e)?`Full year ${e.slice(0,4)}`:`Jan 1 to ${dLong(e)}`}),h('td',null,bIn(e,'sp')),h('td',null,bIn(e,'agg')))))))));
   const syms=[...new Set(d.accounts.flatMap(a=>a.periods.flatMap(p=>p.holdings.map(x=>x.symbol))))].filter(Boolean).sort(),fl=funds();
   const fSet=(sym,key,val)=>{ d.funds[sym]={...(fl[sym]||{name:'',er:0,class:'Other'}),[key]:val}; commit(); };
   if(syms.length) out.push(section('Fund costs and types','Expense ratios change now and then. Check the fund company\'s page if a figure matters.',
@@ -665,8 +731,11 @@ function render(){
   const lastDate=d&&d.accounts.length?d.accounts.map(a=>a.periods[a.periods.length-1].asOf).sort().pop():null;
   $('#asof').textContent=lastDate?`Statements through ${dLong(lastDate)}`:'';
   $('#tabs').replaceChildren(...TABS.map(([id,name])=>h('button',{role:'tab','aria-selected':state.tab===id?'true':'false',onclick:()=>{ state.tab=id; state.msg=''; save(); render(); scrollTo(0,0); },text:name})));
-  const showScope=d&&d.accounts.length>1&&state.tab!=='data';
-  $('#scopebar').hidden=!showScope;
+  const showScope=d&&d.accounts.length>1&&state.tab!=='data',showRange=!!(d&&d.accounts.length&&(state.tab==='returns'||state.tab==='bench'));
+  $('#scopebar').hidden=!showScope&&!showRange; $('#scope').hidden=!showScope; $('#range').hidden=!showRange;
+  if(showRange){ const acc=scopeAccts(),c=combine(acc),eff=windowed(acc).key;
+    $('#range').replaceChildren(h('div',{class:'seg',role:'group','aria-label':'Time range'},RANGES.map(([k,name])=>{ const st=rangeStart(c,k,acc.length);
+      return h('button',{'aria-pressed':eff===k?'true':'false','aria-disabled':st.ok?null:'true',title:st.ok?null:`Needs a balance for ${dLong(st.target)}`,onclick:()=>{ if(!st.ok) return; state.range=k; save(); render(); },text:name}); }))); }
   if(showScope) $('#scope').replaceChildren(h('button',{class:'chip','aria-pressed':state.scope==='all'?'true':'false',onclick:()=>{ state.scope='all'; save(); render(); },text:'All accounts'}),
     ...d.accounts.map(a=>h('button',{class:'chip','aria-pressed':state.scope===a.id?'true':'false',onclick:()=>{ state.scope=a.id; save(); render(); }},h('i',{class:'dot',style:{background:cv(acctColor(a))}}),a.label)));
   const main=$('#main'); let body;

@@ -20,3 +20,9 @@ node_modules/
 
 # Claude Code machine-local settings
 .claude/settings.local.json
+
+# Account Evaluator data. account-evaluator.html ships with no balances; the
+# statement data lives in a separate JSON file that is loaded in the browser.
+# Its backup button saves account-evaluator-data.json, which must stay private.
+account-evaluator-data*.json
+*-accounts-data.json
