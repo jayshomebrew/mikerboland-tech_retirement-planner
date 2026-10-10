@@ -1,0 +1,689 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Account Evaluator</title>
+<style>
+:root{
+  color-scheme:light;
+  --surface:#fcfcfb; --band:#f1f3f5; --ink:#101820; --ink2:#4a5560; --muted:#737d87;
+  --rule:#dfe3e6; --axis:#c2c8cd; --head:#17324d; --head-ink:#f4f7fa; --head-dim:#a9bccf;
+  --btn:#17324d; --btn-ink:#ffffff; --focus:#2a78d6; --up:#006300; --down:#b3261e; --warn-bg:#fff4d6; --warn-ink:#5c4300;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4; --s6:#008300; --s7:#6250d6; --s8:#e34948;
+  --b1:#4a5560; --b2:#98a1a9;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    color-scheme:dark;
+    --surface:#1a1a19; --band:#232322; --ink:#f0efec; --ink2:#c3c2b7; --muted:#898781;
+    --rule:#2c2c2a; --axis:#383835; --head:#10202f; --head-ink:#f0efec; --head-dim:#8fa3b8;
+    --btn:#cfe0f2; --btn-ink:#10202f; --focus:#3987e5; --up:#0ca30c; --down:#e66767; --warn-bg:#3a3214; --warn-ink:#f3dc9a;
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181; --s6:#008300; --s7:#9085e9; --s8:#e66767;
+    --b1:#c3c2b7; --b2:#77766f;
+  }
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--surface);color:var(--ink);font:15px/1.45 "Avenir Next","Segoe UI Variable Text","Segoe UI",system-ui,-apple-system,sans-serif}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.wrap{max-width:980px;margin:0 auto;padding:0 16px}
+header.top{background:var(--head);color:var(--head-ink);padding-top:env(safe-area-inset-top)}
+header.top .wrap{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding-top:14px;padding-bottom:12px}
+header.top h1{font-size:17px;font-weight:600;margin:0;letter-spacing:.01em}
+header.top .asof{font-size:13px;color:var(--head-dim);text-align:right}
+nav.tabs{position:sticky;top:0;z-index:5;background:var(--head)}
+nav.tabs .wrap{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
+nav.tabs .wrap::-webkit-scrollbar{display:none}
+nav.tabs button{flex:0 0 auto;background:none;border:0;border-bottom:3px solid transparent;color:var(--head-dim);padding:10px 12px 9px;font-weight:500;cursor:pointer;white-space:nowrap}
+nav.tabs button[aria-selected=true]{color:var(--head-ink);border-bottom-color:var(--head-ink)}
+.scope{background:var(--band);border-bottom:1px solid var(--rule)}
+.scope .wrap{display:flex;gap:8px;overflow-x:auto;padding-top:10px;padding-bottom:10px;scrollbar-width:none}
+.scope .wrap::-webkit-scrollbar{display:none}
+.chip{flex:0 0 auto;display:inline-flex;align-items:center;gap:7px;border:1px solid var(--axis);background:var(--surface);border-radius:999px;padding:5px 12px;cursor:pointer;font-size:14px}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--surface);border-color:var(--ink)}
+.dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto;display:inline-block}
+main{padding:22px 0 60px}
+section{padding:22px 0;border-top:1px solid var(--rule)}
+section:first-child{border-top:0;padding-top:4px}
+h2{font-size:20px;line-height:1.2;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
+h3{font-size:15px;font-weight:600;margin:18px 0 6px}
+p{margin:0 0 10px;max-width:68ch}
+.sub{color:var(--ink2);margin:0 0 14px;max-width:68ch}
+.small{font-size:13px;color:var(--ink2)}
+.hero-label{color:var(--ink2);margin:0}
+.hero{font-size:clamp(44px,13vw,64px);line-height:1.02;font-weight:600;letter-spacing:-.025em;margin:2px 0 8px}
+.facts{display:grid;grid-template-columns:repeat(3,1fr);margin:16px 0 0;border-top:1px solid var(--rule)}
+.facts>div{padding:10px 12px 2px 0}
+.facts>div+div{border-left:1px solid var(--rule);padding-left:12px}
+.facts .k{font-size:13px;color:var(--ink2);display:block}
+.facts .v{font-size:19px;font-weight:600;display:block;margin-top:2px}
+.facts .n{font-size:12.5px;color:var(--ink2);display:block}
+@media (max-width:520px){.facts{grid-template-columns:1fr}.facts>div+div{border-left:0;border-top:1px solid var(--rule);padding-left:0}.facts>div{padding:8px 0;display:grid;grid-template-columns:1fr auto;align-items:baseline;column-gap:10px}.facts .n{grid-column:1/-1}.facts .v{margin:0}}
+.up{color:var(--up)} .down{color:var(--down)}
+figure{margin:0}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:13px;color:var(--ink2);margin:0 0 6px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{width:10px;height:10px;border-radius:2px;display:inline-block}
+.ln{width:16px;height:0;border-top:2.5px solid;display:inline-block;border-radius:2px}
+.chart{width:100%;touch-action:pan-y;position:relative}
+.chart svg{display:block;width:100%;height:auto;overflow:visible}
+.chart text{font-size:11px;fill:var(--muted);font-variant-numeric:tabular-nums}
+.chart text.lab{fill:var(--ink2);font-size:12px}
+.chart text.val{fill:var(--ink);font-size:12px;font-weight:600}
+details.nums{margin-top:8px}
+details>summary{cursor:pointer;color:var(--ink2);font-size:13.5px;padding:6px 0;width:fit-content}
+.tscroll{overflow-x:auto;margin-top:6px}
+table{border-collapse:collapse;width:100%;font-size:13.5px;font-variant-numeric:tabular-nums}
+th,td{padding:7px 10px 7px 0;text-align:right;white-space:nowrap;border-bottom:1px solid var(--rule)}
+th:last-child,td:last-child{padding-right:0}
+th{font-weight:500;color:var(--ink2);font-size:12.5px;vertical-align:bottom;white-space:normal}
+th.l,td.l{text-align:left}
+table:not(.edit) th:first-child,table:not(.edit) td:first-child{position:sticky;left:0;background:var(--surface)}
+@media (max-width:520px){table:not(.edit){font-size:13px}table:not(.edit) th,table:not(.edit) td{padding-right:8px}}
+td.w{white-space:normal;min-width:132px}
+tfoot td{font-weight:600;border-bottom:0;border-top:1px solid var(--axis)}
+td .s{display:block;font-size:12px;color:var(--ink2);font-weight:400}
+.note{font-size:13px;color:var(--ink2);margin-top:10px;max-width:72ch}
+ul.plain{margin:6px 0 0;padding:0;list-style:none;max-width:70ch}
+ul.plain li{padding:9px 0;border-bottom:1px solid var(--rule)}
+ul.plain li:last-child{border-bottom:0}
+.meter{display:flex;gap:2px;height:14px;margin:8px 0 6px}
+.meter i{display:block;height:100%;min-width:2px}
+.meter i:first-child{border-radius:4px 0 0 4px}.meter i:last-child{border-radius:0 4px 4px 0}.meter i:only-child{border-radius:4px}
+.btn{background:var(--btn);color:var(--btn-ink);border:0;border-radius:8px;padding:9px 14px;font-weight:600;cursor:pointer}
+.btn.quiet{background:none;color:var(--ink);border:1px solid var(--axis);font-weight:500}
+.btn.tiny{padding:4px 9px;font-size:13px;border-radius:6px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+.banner{background:var(--warn-bg);color:var(--warn-ink);padding:9px 12px;border-radius:8px;font-size:13.5px;margin:0 0 14px}
+.msg{font-size:13.5px;margin:8px 0;min-height:1.2em}
+textarea{width:100%;min-height:120px;border:1px solid var(--axis);border-radius:8px;background:var(--surface);padding:8px;font:12px/1.4 ui-monospace,Menlo,Consolas,monospace}
+input[type=text],input[type=number],input[type=date],select{border:1px solid var(--axis);border-radius:6px;background:var(--surface);padding:5px 7px;min-width:0}
+td input[type=number]{width:104px;text-align:right}
+td input.narrow{width:76px}
+td input[type=text]{width:100%;min-width:90px}
+td input[type=date]{width:136px}
+.edit td,.edit th{padding:4px 6px 4px 0;border-bottom:0}
+.acct-edit{border-top:1px solid var(--rule);padding:4px 0}
+.acct-edit>summary{font-size:15px;color:var(--ink);font-weight:600;padding:10px 0;width:auto}
+.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px 12px;margin:4px 0 12px}
+.fields label{display:grid;gap:3px;font-size:12.5px;color:var(--ink2)}
+.hold{background:var(--band);border-radius:8px;padding:8px 10px;margin:2px 0 10px;position:sticky;left:0;width:fit-content;max-width:calc(100vw - 32px);overflow-x:auto}
+.hold td input[type=text]{width:84px;min-width:0}
+.pnote{position:sticky;left:0;max-width:min(560px,calc(100vw - 32px));white-space:normal}
+.empty{padding:28px 0}
+.empty h2{font-size:24px}
+.tip{position:fixed;z-index:20;pointer-events:none;background:var(--ink);color:var(--surface);border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.35;max-width:260px;box-shadow:0 4px 14px rgba(0,0,0,.22);font-variant-numeric:tabular-nums}
+.tip[hidden]{display:none}
+.tip-t{font-weight:600;margin-bottom:4px}
+.tip-r{display:flex;align-items:center;gap:7px;justify-content:space-between}
+.tip-r .l{display:inline-flex;align-items:center;gap:6px;opacity:.82}
+.tip-r .k{width:10px;height:0;border-top:3px solid;border-radius:2px;display:inline-block}
+.tip-r strong{margin-left:14px}
+footer{border-top:1px solid var(--rule);padding:16px 0 30px;font-size:12.5px;color:var(--muted)}
+@media (prefers-reduced-motion:no-preference){.chart .col{transition:opacity .12s}}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap"><h1 id="title">Account Evaluator</h1><div class="asof" id="asof"></div></div></header>
+<nav class="tabs"><div class="wrap" role="tablist" id="tabs"></div></nav>
+<div class="scope" id="scopebar" hidden><div class="wrap" id="scope"></div></div>
+<main><div class="wrap" id="main"></div></main>
+<footer><div class="wrap">Figures come from the statement data loaded on this device and stay in this browser. Index returns are published totals with no fees. This is a record-keeping tool, not investment advice.</div></footer>
+<div class="tip" id="tip" hidden></div>
+<input type="file" id="file" accept=".json,application/json" hidden>
+<script>
+'use strict';
+/* ---------- built-in reference data (public figures; all editable on the Data tab) ---------- */
+// Total return, in percent, for the period ENDING on each date (calendar year, or year to date for a mid-year date).
+const DEFAULT_BENCH={
+  '2019-12-31':{sp:31.49,agg:8.72},'2020-12-31':{sp:18.40,agg:7.51},'2021-12-31':{sp:28.71,agg:-1.54},
+  '2022-12-31':{sp:-18.11,agg:-13.01},'2023-12-31':{sp:26.29,agg:5.53},'2024-12-31':{sp:25.02,agg:1.25},
+  '2025-12-31':{sp:17.88,agg:7.30},'2026-09-30':{sp:12.75,agg:-2.91}
+};
+const CLASSES=['US equity','Intl equity','Bonds','Cash','Crypto','Preferred','Other'];
+const CLASS_COLOR={'US equity':'--s1','Intl equity':'--s2','Bonds':'--s3','Cash':'--s4','Crypto':'--s5','Preferred':'--s6','Other':'--s7'};
+const DEFAULT_FUNDS={
+  ITOT:{name:'iShares Core S&P Total U.S. Stock Market ETF',er:0.03,class:'US equity'},
+  SPY:{name:'SPDR S&P 500 ETF Trust',er:0.0945,class:'US equity'},
+  QQQ:{name:'Invesco QQQ Trust',er:0.18,class:'US equity'},
+  DON:{name:'WisdomTree U.S. MidCap Dividend Fund',er:0.38,class:'US equity'},
+  EZM:{name:'WisdomTree U.S. MidCap Fund',er:0.38,class:'US equity'},
+  DGRW:{name:'WisdomTree U.S. Quality Dividend Growth Fund',er:0.28,class:'US equity'},
+  SPYI:{name:'NEOS S&P 500 High Income ETF',er:0.68,class:'US equity'},
+  VTI:{name:'Vanguard Total Stock Market ETF',er:0.03,class:'US equity'},
+  VXUS:{name:'Vanguard Total International Stock ETF',er:0.05,class:'Intl equity'},
+  BND:{name:'Vanguard Total Bond Market ETF',er:0.03,class:'Bonds'},
+  VUSB:{name:'Vanguard Ultra-Short Bond ETF',er:0.10,class:'Bonds'},
+  BTC:{name:'Grayscale Bitcoin Mini Trust ETF',er:0.15,class:'Crypto'},
+  GBTC:{name:'Grayscale Bitcoin Trust ETF',er:1.50,class:'Crypto'},
+  STRC:{name:'Strategy Inc. 9% Series A preferred stock',er:0,class:'Preferred'}
+};
+const BUCKETS=['pre-tax','Roth','taxable'];
+const BUCKET_NAME={'pre-tax':'Pre-tax (taxed when withdrawn)','Roth':'Roth (tax-free)','taxable':'Taxable'};
+const BUCKET_COLOR={'pre-tax':'--s1','Roth':'--s3','taxable':'--s2'};
+const ACCT_COLORS=['--s1','--s2','--s3','--s7','--s5','--s6','--s4','--s8'];
+const STORE='accountEvaluator.v1';
+const TABS=[['overview','Overview'],['returns','Returns'],['bench','Benchmarks'],['alloc','Allocation & fees'],['data','Data']];
+
+/* ---------- small helpers ---------- */
+const $=(q,r=document)=>r.querySelector(q);
+function h(tag,attrs,...kids){
+  const e=document.createElement(tag);
+  for(const [k,v] of Object.entries(attrs||{})){
+    if(v==null||v===false) continue;
+    if(k==='class') e.className=v;
+    else if(k==='text') e.textContent=v;
+    else if(k==='style') for(const [a,b] of Object.entries(v)) e.style.setProperty(a,b);
+    else if(k.startsWith('on')) e.addEventListener(k.slice(2),v);
+    else if(k==='value') e.value=v;
+    else e.setAttribute(k,v===true?'':v);
+  }
+  for(const k of kids.flat(Infinity)){ if(k==null||k===false) continue; e.append(k.nodeType?k:document.createTextNode(String(k))); }
+  return e;
+}
+const NS='http://www.w3.org/2000/svg';
+function s(tag,attrs,...kids){
+  const e=document.createElementNS(NS,tag);
+  for(const [k,v] of Object.entries(attrs||{})){
+    if(v==null) continue;
+    if(k==='text') e.textContent=v;
+    else if(k==='style') for(const [a,b] of Object.entries(v)) e.style.setProperty(a,b);
+    else if(k.startsWith('on')) e.addEventListener(k.slice(2),v);
+    else e.setAttribute(k,v);
+  }
+  for(const k of kids.flat(Infinity)) if(k) e.append(k);
+  return e;
+}
+const cv=n=>`var(${n})`;
+const sum=a=>a.reduce((x,y)=>x+(+y||0),0);
+const num=v=>{ const n=typeof v==='number'?v:parseFloat(String(v??'').replace(/[$,\s]/g,'')); return isFinite(n)?n:0; };
+const MIN='−', DASH='—';
+function fmt$(v,d=0){ if(v==null||!isFinite(v)) return DASH; const a=Math.abs(v).toLocaleString('en-US',{minimumFractionDigits:d,maximumFractionDigits:d}); return (v<0&&+Math.abs(v).toFixed(d)!==0?MIN:'')+'$'+a; }
+function fmtK(v){ const a=Math.abs(v),g=v<0?MIN:''; if(a>=1e6) return g+'$'+(a/1e6).toFixed(a>=1e7?0:1).replace(/\.0$/,'')+'M'; if(a>=1e4) return g+'$'+Math.round(a/1e3)+'K'; if(a>=1e3) return g+'$'+(a/1e3).toFixed(1).replace(/\.0$/,'')+'K'; return g+'$'+Math.round(a); }
+function fmtPct(v,d=1,signed=false){ if(v==null||!isFinite(v)) return DASH; const z=+Math.abs(v*100).toFixed(d)===0; return (v<0&&!z?MIN:(signed&&v>0&&!z?'+':''))+Math.abs(v*100).toFixed(d)+'%'; }
+const fmtPts=(v,d=1)=> v==null||!isFinite(v)?DASH:(v<0?MIN:'+')+Math.abs(v*100).toFixed(d)+' pts';
+const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const T=d=>{ const [y,m,dd]=d.split('-').map(Number); return Date.UTC(y,m-1,dd); };
+const isYE=d=>d.slice(5)==='12-31';
+const dLong=d=>`${MON[+d.slice(5,7)-1]} ${+d.slice(8,10)}, ${d.slice(0,4)}`;
+const dPoint=d=>isYE(d)?`End of ${d.slice(0,4)}`:dLong(d);                       // a balance date
+const dPointShort=d=>isYE(d)?`'${d.slice(2,4)}`:`${+d.slice(5,7)}/${d.slice(2,4)}`;
+// A period: a calendar year, a year to date, or (when statements are closer together) the two dates.
+const pName=(d,from)=>{ if(from&&!(isYE(from)&&+d.slice(0,4)===+from.slice(0,4)+1)) return `${dLong(from)} to ${dLong(d)}`; return isYE(d)?d.slice(0,4):`${d.slice(0,4)} to ${MON[+d.slice(5,7)-1]} ${+d.slice(8,10)}`; };
+const wholeYear=r=>isYE(r.to)&&isYE(r.from)&&+r.to.slice(0,4)===+r.from.slice(0,4)+1;
+const years=(a,b)=>(T(b)-T(a))/(365.25*864e5);
+const signCls=v=>v==null||!isFinite(v)||Math.abs(v)<5e-5?'':(v<0?'down':'up');
+
+/* ---------- state & storage ---------- */
+const state={data:null,scope:'all',tab:'overview',openAcct:new Set(),openHold:new Set(),msg:''};
+function normalize(d){
+  if(!d||typeof d!=='object'||!Array.isArray(d.accounts)) throw new Error('That file has no "accounts" list, so it is not an Account Evaluator data file.');
+  const out={schema:1,title:String(d.title||''),example:!!d.example,accounts:[],funds:{},benchmarks:{}};
+  d.accounts.forEach((a,i)=>{
+    if(!Array.isArray(a.periods)) throw new Error(`Account ${i+1} has no "periods" list.`);
+    const acct={id:String(a.id||('acct'+(i+1))),label:String(a.label||a.type||('Account '+(i+1))),type:String(a.type||''),owner:String(a.owner||''),
+      custodian:String(a.custodian||''),taxBucket:BUCKETS.includes(a.taxBucket)?a.taxBucket:'pre-tax',periods:[]};
+    for(const p of a.periods){
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(p.asOf||'')) throw new Error(`"${acct.label}" has a statement without a valid date (use YYYY-MM-DD).`);
+      const q={asOf:p.asOf,end:num(p.end),contrib:num(p.contrib),withdraw:num(p.withdraw),cash:num(p.cash),fees:num(p.fees),
+        dividends:p.dividends==null?null:num(p.dividends),interest:p.interest==null?null:num(p.interest),
+        derived:!!p.derived,note:String(p.note||''),holdings:[]};
+      for(const k of ['otherIncome','purchases','sales','realized','costBasis']) if(p[k]!=null) q[k]=num(p[k]);
+      for(const x of (p.holdings||[])) q.holdings.push({symbol:String(x.symbol||'').toUpperCase(),qty:num(x.qty),price:num(x.price),value:num(x.value)});
+      acct.periods.push(q);
+    }
+    acct.periods.sort((x,y)=>x.asOf<y.asOf?-1:1);
+    out.accounts.push(acct);
+  });
+  for(const [k,v] of Object.entries(d.funds||{})) out.funds[k.toUpperCase()]={name:String(v.name||''),er:num(v.er),class:CLASSES.includes(v.class)?v.class:'Other'};
+  for(const [k,v] of Object.entries(d.benchmarks||{})) if(/^\d{4}-\d{2}-\d{2}$/.test(k)) out.benchmarks[k]={sp:v.sp==null||v.sp===''?null:num(v.sp),agg:v.agg==null||v.agg===''?null:num(v.agg)};
+  return out;
+}
+function save(){ try{ if(state.data) localStorage.setItem(STORE,JSON.stringify(state.data)); localStorage.setItem(STORE+'.ui',JSON.stringify({scope:state.scope,tab:state.tab})); }catch(e){} }
+function load(){
+  try{ const raw=localStorage.getItem(STORE); if(raw) state.data=normalize(JSON.parse(raw)); }catch(e){ state.data=null; }
+  try{ const ui=JSON.parse(localStorage.getItem(STORE+'.ui')||'{}'); if(TABS.some(t=>t[0]===ui.tab)) state.tab=ui.tab; if(ui.scope) state.scope=ui.scope; }catch(e){}
+}
+function setData(obj,msg){ state.data=normalize(obj); state.scope='all'; state.msg=msg||''; save(); render(); }
+function exportText(){ return JSON.stringify(state.data,null,1); }
+function exampleData(){
+  const yrs=['2020-12-31','2021-12-31','2022-12-31','2023-12-31','2024-12-31','2025-12-31'];
+  const mk=(id,label,type,bucket,start,add,rets,mix)=>{ let v=start; const ps=[{asOf:'2019-12-31',end:start,holdings:[]}];
+    yrs.forEach((d,i)=>{ v=Math.round((v*(1+rets[i])+add*(1+rets[i]/2))*100)/100; const cash=Math.round(v*mix.cash*100)/100; let left=v-cash; const hs=mix.h.map(([sym,w],j)=>{ const val=j===mix.h.length-1?Math.round(left*100)/100:Math.round((v-cash)*w*100)/100; left-=val; return {symbol:sym,qty:0,price:0,value:val}; });
+      ps.push({asOf:d,end:v,contrib:add,withdraw:0,cash,interest:Math.round(cash*0.01)/1,dividends:Math.round(v*0.015),fees:id==='ex401k'?45:0,holdings:hs}); });
+    return {id,label,type,taxBucket:bucket,owner:'Example',periods:ps}; };
+  return {schema:1,title:'Example household',example:true,accounts:[
+    mk('ex401k','401(k)','401(k)','pre-tax',182000,19500,[.142,.151,-.158,.176,.139,.121],{cash:.02,h:[['VTI',.55],['VXUS',.2],['BND',.25]]}),
+    mk('exroth','Roth IRA','Roth IRA','Roth',41000,6000,[.201,.262,-.193,.257,.241,.172],{cash:.01,h:[['VTI',1]]}),
+    mk('exbrk','Brokerage','Brokerage','taxable',60000,0,[.06,.04,-.05,.07,.09,.08],{cash:.45,h:[['SPY',.6],['BND',.4]]})]};
+}
+
+/* ---------- calculations ---------- */
+const D=()=>state.data;
+const funds=()=>({...DEFAULT_FUNDS,...D().funds});
+const benchTable=()=>({...DEFAULT_BENCH,...D().benchmarks});
+const acctColor=a=>ACCT_COLORS[D().accounts.indexOf(a)]||'--b2';
+const scopeAccts=()=>state.scope==='all'?D().accounts:D().accounts.filter(a=>a.id===state.scope);
+const scopeName=()=>state.scope==='all'?(D().accounts.length>1?'All accounts':D().accounts[0].label):scopeAccts()[0].label;
+const flowOf=p=>(p.contrib||0)-(p.withdraw||0);
+// Return for one period with money in/out assumed to land mid-period (Modified Dietz).
+const dietz=(start,end,flow)=>{ const den=start+flow/2; return den>0?(end-start-flow)/den:null; };
+function combine(accts){
+  const dates=[...new Set(accts.flatMap(a=>a.periods.map(p=>p.asOf)))].sort();
+  const maps=accts.map(a=>Object.fromEntries(a.periods.map(p=>[p.asOf,p])));
+  const pts=dates.map(d=>({asOf:d,value:sum(maps.map(m=>m[d]?m[d].end:0)),n:maps.filter(m=>m[d]).length}));
+  const rows=[];
+  for(let i=1;i<dates.length;i++){
+    const d0=dates[i-1],d1=dates[i]; let st=0,en=0,fl=0,ci=0,wo=0,any=false,derived=false;
+    for(const m of maps) if(m[d0]&&m[d1]){ any=true; st+=m[d0].end; en+=m[d1].end; fl+=flowOf(m[d1]); ci+=m[d1].contrib||0; wo+=m[d1].withdraw||0; if(m[d0].derived) derived=true; }
+    if(any) rows.push({from:d0,to:d1,start:st,end:en,flow:fl,contrib:ci,withdraw:wo,gain:en-st-fl,ret:dietz(st,en,fl),derived});
+  }
+  return {dates,pts,rows,partial:pts.some(p=>p.n<accts.length)};
+}
+function summarize(rows){
+  if(!rows.length) return null;
+  let cum=1; for(const r of rows) if(r.ret!=null) cum*=1+r.ret;
+  const y=years(rows[0].from,rows[rows.length-1].to);
+  return {cum:cum-1,years:y,ann:y>0?Math.pow(cum,1/y)-1:null,flow:sum(rows.map(r=>r.flow)),gain:sum(rows.map(r=>r.gain)),
+    start:rows[0].start,end:rows[rows.length-1].end,from:rows[0].from,to:rows[rows.length-1].to};
+}
+function benchRet(date,key){
+  const b=benchTable()[date]; if(!b) return null;
+  if(key==='sp') return b.sp==null?null:b.sp/100;
+  if(key==='agg') return b.agg==null?null:b.agg/100;
+  return b.sp==null||b.agg==null?null:(0.6*b.sp+0.4*b.agg)/100;
+}
+const BENCH_NAME={sp:'S&P 500',mix:'60/40 mix',agg:'US bonds'};
+// Dollars the same money would be worth at index returns, with the same money in and out.
+function benchTrack(accts,key){
+  const tot={},bad=new Set();
+  for(const a of accts){
+    let v=a.periods[0].end; tot[a.periods[0].asOf]=(tot[a.periods[0].asOf]||0)+v;
+    for(let i=1;i<a.periods.length;i++){
+      const p=a.periods[i],r=benchRet(p.asOf,key);
+      if(r==null||v==null){ v=null; bad.add(p.asOf); continue; }
+      v=v*(1+r)+flowOf(p)*Math.sqrt(1+r); tot[p.asOf]=(tot[p.asOf]||0)+v;
+    }
+  }
+  for(const d of bad) tot[d]=null;
+  return tot;
+}
+function benchSummary(rows,key){
+  let cum=1; for(const r of rows){ const b=benchRet(r.to,key); if(b==null) return null; cum*=1+b; }
+  const y=years(rows[0].from,rows[rows.length-1].to); return {cum:cum-1,ann:y>0?Math.pow(cum,1/y)-1:null};
+}
+const classOf=sym=>sym==='CASH'?'Cash':((funds()[sym]||{}).class||'Other');
+const erOf=sym=>sym==='CASH'?0:((funds()[sym]||{}).er||0);
+function mixAt(accts,date){   // class -> dollars, plus holdings list
+  const cls={},hold={}; let total=0,cost=0;
+  for(const a of accts){ const p=a.periods.find(x=>x.asOf===date); if(!p) continue;
+    const add=(sym,val)=>{ if(!val) return; cls[classOf(sym)]=(cls[classOf(sym)]||0)+val; (hold[sym]=hold[sym]||{symbol:sym,value:0,accts:[]}).value+=val; hold[sym].accts.push(a.label); total+=val; cost+=val*erOf(sym)/100; };
+    for(const x of p.holdings) add(x.symbol,x.value);
+    const rest=p.holdings.length?p.cash:0; add('CASH',rest);
+    if(!p.holdings.length&&p.end){ cls['Other']=(cls['Other']||0)+p.end; total+=p.end; }
+  }
+  return {cls,hold:Object.values(hold).sort((x,y)=>y.value-x.value),total,cost};
+}
+const hasHoldings=(accts,date)=>accts.some(a=>{ const p=a.periods.find(x=>x.asOf===date); return p&&p.holdings.length; });
+
+/* ---------- tooltip ---------- */
+const tipEl=$('#tip');
+function showTip(ev,title,rows){
+  tipEl.replaceChildren(h('div',{class:'tip-t',text:title}),...rows.map(r=>h('div',{class:'tip-r'},h('span',{class:'l'},r.color?h('span',{class:'k',style:{'border-color':cv(r.color)}}):null,r.label),h('strong',{text:r.value}))));
+  tipEl.hidden=false;
+  const w=tipEl.offsetWidth,ht=tipEl.offsetHeight; let x=ev.clientX+14,y=ev.clientY-ht-12;
+  if(x+w>innerWidth-8) x=ev.clientX-w-14; if(x<8) x=8; if(y<8) y=ev.clientY+18;
+  tipEl.style.left=x+'px'; tipEl.style.top=y+'px';
+}
+const hideTip=()=>{ tipEl.hidden=true; };
+addEventListener('scroll',hideTip,{passive:true});
+
+/* ---------- charts (plain SVG) ---------- */
+function niceStep(range,n){ const raw=range/n||1,p=Math.pow(10,Math.floor(Math.log10(raw))),f=raw/p; return (f<=1?1:f<=2?2:f<=2.5?2.5:f<=5?5:10)*p; }
+function axis(min,max,n=4){ if(min===max){ max=min+1; } const st=niceStep(max-min,n),lo=Math.floor(min/st+1e-9)*st,hi=Math.ceil(max/st-1e-9)*st,t=[]; for(let v=lo;v<=hi+st*1e-6;v+=st) t.push(+v.toFixed(10)); return {t,lo,hi}; }
+function frame(el,H,m){ const W=Math.max(280,Math.floor(el.clientWidth||320)); const svg=s('svg',{viewBox:`0 0 ${W} ${H}`,width:W,height:H,role:'img'}); el.replaceChildren(svg); return {svg,W,pw:W-m.l-m.r,ph:H-m.t-m.b}; }
+function grid(svg,ax,y,m,W,fmt,zero){ for(const v of ax.t){ const yy=Math.round(y(v))+.5; svg.append(s('line',{x1:m.l,x2:W-m.r,y1:yy,y2:yy,style:{stroke:cv(v===0&&zero?'--axis':'--rule')}}),s('text',{x:m.l-6,y:yy+3.5,'text-anchor':'end',text:fmt(v)})); } }
+function barPath(x,y0,y1,w,r){ // bar from baseline y0 to data end y1, rounded at the data end
+  const up=y1<y0,hh=Math.abs(y0-y1); r=Math.min(r,hh,w/2); const d=up?1:-1;
+  return `M${x},${y0}V${y1+d*r}Q${x},${y1} ${x+r},${y1}H${x+w-r}Q${x+w},${y1} ${x+w},${y1+d*r}V${y0}Z`;
+}
+function legend(items,line){ return h('div',{class:'legend'},items.map(i=>h('span',null,h('i',{class:line?'ln':'sw',style:line?{'border-color':cv(i.color)}:{background:cv(i.color)}}),i.name))); }
+
+function chartStack(el,{cats,tips,series,label}){   // stacked columns of dollars
+  const m={t:20,r:6,b:24,l:46},H=250,{svg,W,pw,ph}=frame(el,H,m);
+  const tots=cats.map((_,i)=>sum(series.map(q=>q.values[i])));
+  const ax=axis(0,Math.max(...tots,1)),y=v=>m.t+ph-(v/ax.hi)*ph;
+  grid(svg,ax,y,m,W,fmtK,true);
+  const band=pw/cats.length,bw=Math.min(24,band*0.62),cols=[];
+  cats.forEach((c,i)=>{
+    const x=m.l+band*i+(band-bw)/2,g=s('g',{class:'col'}); let acc=0;
+    const live=series.map((q,j)=>({q,v:q.values[i]||0})).filter(o=>o.v>0);
+    live.forEach((o,j)=>{ const y0=y(acc)-(j?2:0),y1=y(acc+o.v); acc+=o.v; if(y0-y1<0.5) return;
+      g.append(j===live.length-1?s('path',{d:barPath(x,y0,y1,bw,4),style:{fill:cv(o.q.color)}}):s('rect',{x,y:y1,width:bw,height:y0-y1,style:{fill:cv(o.q.color)}})); });
+    if(i===cats.length-1) g.append(s('text',{class:'val',x:Math.min(x+bw/2,W-2),y:y(tots[i])-6,'text-anchor':x+bw/2+26>W?'end':'middle',text:fmtK(tots[i])}));
+    g.append(s('text',{x:x+bw/2,y:H-7,'text-anchor':'middle',text:c}));
+    const hit=s('rect',{x:m.l+band*i,y:m.t,width:band,height:ph+m.b,fill:'transparent',tabindex:0,'aria-label':`${tips[i]}: ${fmt$(tots[i])}`});
+    const on=ev=>{ cols.forEach((o,k)=>o.style.opacity=k===i?1:.45); const rows=series.filter(q=>q.values[i]).map(q=>({color:q.color,label:q.name,value:fmt$(q.values[i])})); if(series.length>1) rows.push({label:'Total',value:fmt$(tots[i])}); showTip(ev.clientX!=null?ev:{clientX:hit.getBoundingClientRect().x,clientY:hit.getBoundingClientRect().y},tips[i],rows); };
+    const off=()=>{ cols.forEach(o=>o.style.opacity=1); hideTip(); };
+    hit.addEventListener('pointermove',on); hit.addEventListener('pointerdown',on); hit.addEventListener('pointerleave',off); hit.addEventListener('focus',on); hit.addEventListener('blur',off);
+    g.append(hit); cols.push(g); svg.append(g);
+  });
+  svg.setAttribute('aria-label',label);
+}
+function chartGroup(el,{cats,tips,series,label}){   // grouped columns of percent returns
+  const m={t:14,r:6,b:24,l:42},H=240,{svg,W,pw,ph}=frame(el,H,m);
+  const all=series.flatMap(q=>q.values).filter(v=>v!=null);
+  const ax=axis(Math.min(0,...all),Math.max(0,...all),5),y=v=>m.t+ph-((v-ax.lo)/(ax.hi-ax.lo))*ph;
+  grid(svg,ax,y,m,W,v=>fmtPct(v,0),true);
+  const n=series.length,band=pw/cats.length,bw=Math.max(3,Math.min(n===1?24:16,(band*0.78-(n-1)*2)/n)),gw=bw*n+(n-1)*2,cols=[];
+  cats.forEach((c,i)=>{
+    const g=s('g',{class:'col'}),x0=m.l+band*i+(band-gw)/2;
+    series.forEach((q,j)=>{ const v=q.values[i]; if(v==null||Math.abs(y(v)-y(0))<0.5) return; g.append(s('path',{d:barPath(x0+j*(bw+2),y(0),y(v),bw,Math.min(4,bw/2)),style:{fill:cv(q.color)}})); });
+    g.append(s('text',{x:m.l+band*i+band/2,y:H-7,'text-anchor':'middle',text:c}));
+    const hit=s('rect',{x:m.l+band*i,y:m.t,width:band,height:ph+m.b,fill:'transparent',tabindex:0,'aria-label':tips[i]+': '+series.map(q=>`${q.name} ${fmtPct(q.values[i])}`).join(', ')});
+    const on=ev=>{ cols.forEach((o,k)=>o.style.opacity=k===i?1:.45); showTip(ev.clientX!=null?ev:{clientX:hit.getBoundingClientRect().x,clientY:hit.getBoundingClientRect().y},tips[i],series.map(q=>({color:q.color,label:q.name,value:fmtPct(q.values[i])}))); };
+    const off=()=>{ cols.forEach(o=>o.style.opacity=1); hideTip(); };
+    hit.addEventListener('pointermove',on); hit.addEventListener('pointerdown',on); hit.addEventListener('pointerleave',off); hit.addEventListener('focus',on); hit.addEventListener('blur',off);
+    g.append(hit); cols.push(g); svg.append(g);
+  });
+  svg.setAttribute('aria-label',label);
+}
+function chartLine(el,{dates,series,fmt,tick,label}){   // lines over time with a crosshair readout
+  const wide=(el.clientWidth||320)>=620;
+  const m={t:14,r:wide?96:14,b:24,l:46},H=260,{svg,W,pw,ph}=frame(el,H,m);
+  const all=series.flatMap(q=>q.values).filter(v=>v!=null);
+  const ax=axis(Math.min(...all)>0&&Math.min(...all)<Math.max(...all)*0.5?0:Math.min(...all),Math.max(...all)),t0=T(dates[0]),t1=T(dates[dates.length-1]);
+  const x=d=>m.l+(t1===t0?0:(T(d)-t0)/(t1-t0))*pw,y=v=>m.t+ph-((v-ax.lo)/(ax.hi-ax.lo))*ph;
+  grid(svg,ax,y,m,W,tick,false);
+  const step=Math.ceil(dates.length/Math.max(2,Math.floor(pw/34)));
+  dates.forEach((d,i)=>{ if((dates.length-1-i)%step===0) svg.append(s('text',{x:x(d),y:H-7,'text-anchor':i===dates.length-1&&!wide?'end':'middle',text:dPointShort(d)})); });
+  const cross=s('line',{y1:m.t,y2:m.t+ph,style:{stroke:cv('--axis')},visibility:'hidden'}); svg.append(cross);
+  const ends=[];
+  for(const q of series){
+    const pts=dates.map((d,i)=>q.values[i]==null?null:[x(d),y(q.values[i])]).filter(Boolean); if(!pts.length) continue;
+    svg.append(s('path',{d:'M'+pts.map(p=>p[0].toFixed(1)+','+p[1].toFixed(1)).join('L'),fill:'none','stroke-width':q.strong?2.5:2,'stroke-linejoin':'round','stroke-linecap':'round',style:{stroke:cv(q.color)}}));
+    const e=pts[pts.length-1]; svg.append(s('circle',{cx:e[0],cy:e[1],r:4,'stroke-width':2,style:{fill:cv(q.color),stroke:cv('--surface')}}));
+    ends.push({q,x:e[0],y:e[1]});
+  }
+  if(wide){ ends.sort((a,b)=>a.y-b.y); if(ends.every((e,i)=>!i||e.y-ends[i-1].y>=14)) for(const e of ends) svg.append(s('text',{class:'lab',x:e.x+9,y:e.y+4,text:e.q.short||e.q.name})); }
+  const marks=series.map(q=>s('circle',{r:4,'stroke-width':2,visibility:'hidden',style:{fill:cv(q.color),stroke:cv('--surface')}})); svg.append(marks);
+  const hit=s('rect',{x:m.l-8,y:m.t,width:pw+16,height:ph+m.b,fill:'transparent',tabindex:0,'aria-label':label});
+  let cur=dates.length-1;
+  const at=(i,ev)=>{ cur=i; const d=dates[i]; cross.setAttribute('x1',x(d)); cross.setAttribute('x2',x(d)); cross.setAttribute('visibility','visible');
+    series.forEach((q,j)=>{ const v=q.values[i]; marks[j].setAttribute('visibility',v==null?'hidden':'visible'); if(v!=null){ marks[j].setAttribute('cx',x(d)); marks[j].setAttribute('cy',y(v)); } });
+    const b=svg.getBoundingClientRect(); showTip(ev||{clientX:b.x+x(d)*b.width/W,clientY:b.y+m.t+20},dPoint(d),series.filter(q=>q.values[i]!=null).map(q=>({color:q.color,label:q.name,value:fmt(q.values[i])}))); };
+  const move=ev=>{ const b=svg.getBoundingClientRect(),px=(ev.clientX-b.x)*W/b.width; let best=0,bd=1e9; dates.forEach((d,i)=>{ const dd=Math.abs(x(d)-px); if(dd<bd){ bd=dd; best=i; } }); at(best,ev); };
+  const off=()=>{ cross.setAttribute('visibility','hidden'); marks.forEach(c=>c.setAttribute('visibility','hidden')); hideTip(); };
+  hit.addEventListener('pointermove',move); hit.addEventListener('pointerdown',move); hit.addEventListener('pointerleave',off); hit.addEventListener('focus',()=>at(cur)); hit.addEventListener('blur',off);
+  hit.addEventListener('keydown',ev=>{ if(ev.key==='ArrowLeft'||ev.key==='ArrowRight'){ ev.preventDefault(); at(Math.max(0,Math.min(dates.length-1,cur+(ev.key==='ArrowLeft'?-1:1)))); } });
+  svg.append(hit); svg.setAttribute('aria-label',label);
+}
+function chartShare(el,{rows,label}){   // one 100% bar per row
+  const m={t:4,r:6,b:4,l:44},rh=24,H=m.t+m.b+rows.length*rh,{svg,W,pw}=frame(el,H,m);
+  rows.forEach((r,i)=>{
+    const tot=sum(r.parts.map(p=>p.value)),yy=m.t+i*rh+5; let acc=0;
+    svg.append(s('text',{x:m.l-8,y:yy+11,'text-anchor':'end',text:r.name}));
+    const live=r.parts.filter(p=>p.value>0);
+    live.forEach((p,j)=>{ const x0=m.l+acc/tot*pw+(j?2:0); acc+=p.value; const x1=m.l+acc/tot*pw,w=Math.max(1,x1-x0);
+      const rect=s('rect',{x:x0,y:yy,width:w,height:14,rx:j===0||j===live.length-1?2:0,tabindex:0,'aria-label':`${r.tip}: ${p.name} ${fmtPct(p.value/tot)}`,style:{fill:cv(p.color)}});
+      const on=ev=>{ rect.style.opacity=.8; const b=rect.getBoundingClientRect(); showTip(ev.clientX!=null?ev:{clientX:b.x,clientY:b.y},r.tip,[{color:p.color,label:p.name,value:fmtPct(p.value/tot)},{label:'Amount',value:fmt$(p.value)}]); };
+      const off=()=>{ rect.style.opacity=1; hideTip(); };
+      rect.addEventListener('pointermove',on); rect.addEventListener('pointerdown',on); rect.addEventListener('pointerleave',off); rect.addEventListener('focus',on); rect.addEventListener('blur',off);
+      svg.append(rect); });
+  });
+  svg.setAttribute('aria-label',label);
+}
+
+/* ---------- page pieces ---------- */
+function table(cols,rows,foot){
+  const mk=(c,i,tag)=>{ const col=cols[i]||{}; const o=(c!==null&&typeof c==='object'&&!c.nodeType)?c:{v:c}; return h(tag,{class:[col.l?'l':'',col.w?'w':'',o.cls||''].join(' ').trim()||null},o.v,o.sub?h('span',{class:'s',text:o.sub}):null); };
+  return h('div',{class:'tscroll'},h('table',null,h('thead',null,h('tr',null,cols.map(c=>h('th',{class:c.l?'l':null,scope:'col',text:c.h})))),
+    h('tbody',null,rows.map(r=>h('tr',null,r.map((c,i)=>mk(c,i,'td'))))),foot?h('tfoot',null,foot.map(r=>h('tr',null,r.map((c,i)=>mk(c,i,'td'))))):null));
+}
+const pctCell=(v,d=1)=>({v:fmtPct(v,d),cls:v!=null&&v<-5e-5?'down':''});
+function fig(draw,nums){ const c=h('div',{class:'chart'}); pending.push(()=>draw(c)); return h('figure',null,c,nums?h('details',{class:'nums'},h('summary',{text:'Show the numbers'}),nums):null); }
+let pending=[];
+function section(title,sub,...kids){ return h('section',null,title?h('h2',{text:title}):null,sub?h('p',{class:'sub',text:sub}):null,kids); }
+
+function viewEmpty(){
+  return h('div',{class:'empty'},h('h2',{text:'Load your statement data to begin'}),
+    h('p',{class:'sub',text:'This page ships without any account numbers or balances. Load your data file once and it is remembered in this browser on this device only.'}),
+    h('div',{class:'row'},h('button',{class:'btn',onclick:()=>$('#file').click(),text:'Load data file'}),h('button',{class:'btn quiet',onclick:()=>{ state.tab='data'; render(); },text:'Paste data instead'}),h('button',{class:'btn quiet',onclick:()=>setData(exampleData()),text:'Try it with example data'})),
+    h('p',{class:'msg',text:state.msg}));
+}
+
+function viewOverview(){
+  const accts=scopeAccts(),c=combine(accts),sm=summarize(c.rows),last=c.pts[c.pts.length-1],out=[];
+  if(!sm) return [section('Only one statement so far','Add a second statement date on the Data tab to see returns.')];
+  const up=sm.end-sm.start;
+  out.push(h('section',null,
+    h('p',{class:'hero-label',text:`${scopeName()}, ${dLong(last.asOf)}`}),
+    h('div',{class:'hero',text:fmt$(last.value)}),
+    h('p',null,`${up>=0?'Up':'Down'} ${fmt$(Math.abs(up))} since ${dPoint(sm.from).toLowerCase()}. Investment return works out to `,h('strong',{text:fmtPct(sm.ann)+' a year'}),` over ${sm.years.toFixed(1)} years.`),
+    h('div',{class:'facts'},
+      h('div',null,h('span',{class:'k',text:'Starting balance'}),h('span',{class:'v',text:fmt$(sm.start)}),h('span',{class:'n',text:dPoint(sm.from)+(c.rows[0].derived?', estimated':'')})),
+      h('div',null,h('span',{class:'k',text:'Money added, net of withdrawals'}),h('span',{class:'v',text:fmt$(sm.flow)}),h('span',{class:'n',text:Math.abs(sm.flow)<0.005?'No contributions or withdrawals':'Contributions minus withdrawals'})),
+      h('div',null,h('span',{class:'k',text:'Investment growth'}),h('span',{class:'v '+signCls(sm.gain),text:fmt$(sm.gain)}),h('span',{class:'n',text:'Price changes plus reinvested dividends'})))));
+  const ser=accts.map(a=>{ const m=Object.fromEntries(a.periods.map(p=>[p.asOf,p.end])); return {name:a.label,color:acctColor(a),values:c.dates.map(d=>m[d]||0)}; });
+  out.push(section('Balance at each statement',accts.length>1?'Each column is the combined balance, split by account.':null,
+    accts.length>1?legend(ser):null,
+    fig(el=>chartStack(el,{cats:c.dates.map(dPointShort),tips:c.dates.map(dPoint),series:ser,label:'Balance at each statement date'}),
+      table([{h:'Date',l:1},...accts.map(a=>({h:a.label})),...(accts.length>1?[{h:'Total'}]:[])],c.dates.map((d,i)=>[dPoint(d),...ser.map(q=>fmt$(q.values[i])),...(accts.length>1?[fmt$(c.pts[i].value)]:[])])))));
+  if(accts.length>1){
+    const lastRow=c.rows[c.rows.length-1];
+    out.push(section('The accounts side by side',null,table(
+      [{h:'Account',l:1,w:1},{h:'Balance'},{h:'Share'},{h:'Return per year'},{h:pName(lastRow.to,lastRow.from)},{h:'S&P 500 per year'}],
+      accts.map(a=>{ const r=combine([a]),q=summarize(r.rows),lp=a.periods[a.periods.length-1],b=q&&benchSummary(r.rows,'sp');
+        return [{v:h('span',null,h('i',{class:'dot',style:{background:cv(acctColor(a)),'margin-right':'7px'}}),a.label),sub:BUCKET_NAME[a.taxBucket]},fmt$(lp.end),fmtPct(lp.end/last.value,0),pctCell(q&&q.ann),pctCell(r.rows.length?r.rows[r.rows.length-1].ret:null),pctCell(b&&b.ann)]; }),
+      [['All accounts',fmt$(last.value),'100%',pctCell(sm.ann),pctCell(lastRow.ret),pctCell((benchSummary(c.rows,'sp')||{}).ann)]])));
+  }
+  const notes=insights(accts,c,sm);
+  if(notes.length) out.push(section('What stands out',null,h('ul',{class:'plain'},notes.map(t=>h('li',{text:t})))));
+  return out;
+}
+function insights(accts,c,sm){
+  const out=[],sp=benchSummary(c.rows,'sp'),mx=benchSummary(c.rows,'mix'),last=c.dates[c.dates.length-1];
+  if(sp&&mx) out.push(`${scopeName()} returned ${fmtPct(sm.ann)} a year. Over the same stretch the S&P 500 returned ${fmtPct(sp.ann)} a year and a 60/40 stock and bond mix ${fmtPct(mx.ann)}.`);
+  if(accts.length>1){ const r=accts.map(a=>({a,q:summarize(combine([a]).rows)})).filter(o=>o.q&&o.q.ann!=null).sort((x,y)=>y.q.ann-x.q.ann);
+    if(r.length>1) out.push(`${r[0].a.label} grew fastest at ${fmtPct(r[0].q.ann)} a year. ${r[r.length-1].a.label} was slowest at ${fmtPct(r[r.length-1].q.ann)} a year.`); }
+  if(hasHoldings(accts,last)){
+    const mix=mixAt(accts,last),top=mix.hold.filter(x=>x.symbol!=='CASH');
+    if(top.length) out.push(`${top[0].symbol} is the largest holding at ${fmtPct(top[0].value/mix.total,0)} of the total`+(top.length>2?`; the top three (${top.slice(0,3).map(x=>x.symbol).join(', ')}) make up ${fmtPct(sum(top.slice(0,3).map(x=>x.value))/mix.total,0)}.`:'.'));
+    let peak=null; for(const d of c.dates){ if(!hasHoldings(accts,d)) continue; const mm=mixAt(accts,d),sh=(mm.cls.Cash||0)/mm.total; if(!peak||sh>peak.sh) peak={d,sh,cash:mm.cls.Cash||0}; }
+    if(peak&&peak.sh>=0.05){ const int=sum(accts.map(a=>{ const p=a.periods.find(x=>x.asOf===peak.d); return p&&p.interest!=null?p.interest:0; }));
+      out.push(`Cash peaked at ${fmtPct(peak.sh,0)} of the total (${fmt$(peak.cash)}) at the ${dPoint(peak.d).toLowerCase()} and earned ${fmt$(int,2)} in interest that year. It is ${fmtPct((mix.cls.Cash||0)/mix.total,1)} now.`); }
+    const costly=top.filter(x=>erOf(x.symbol)>0).sort((x,y)=>erOf(y.symbol)-erOf(x.symbol))[0];
+    out.push(`Fund expenses run about ${fmt$(mix.cost)} a year, or ${fmtPct(mix.cost/mix.total,2)} of the balance.`+(costly?` The costliest fund is ${costly.symbol} at ${erOf(costly.symbol).toFixed(2)}%.`:''));
+  }
+  return out;
+}
+
+function viewReturns(){
+  const accts=scopeAccts(),c=combine(accts),sm=summarize(c.rows),out=[];
+  if(!sm) return [section('Only one statement so far','Add a second statement date on the Data tab to see returns.')];
+  const per=accts.map(a=>({a,c:combine([a])})),ends=c.rows.map(r=>r.to);
+  const ser=per.map(o=>({name:o.a.label,color:acctColor(o.a),values:ends.map(d=>{ const r=o.c.rows.find(x=>x.to===d); return r?r.ret:null; })}));
+  const derived=c.rows.some(r=>r.derived),star=r=>r.derived?' *':'';
+  let tbl;
+  if(accts.length>1){
+    tbl=table([{h:'Period',l:1},...accts.map(a=>({h:a.label})),{h:'All accounts'}],
+      c.rows.map((r,i)=>[pName(r.to,r.from)+star(r),...ser.map(q=>pctCell(q.values[i])),pctCell(r.ret)]),
+      [['Per year',...per.map(o=>pctCell((summarize(o.c.rows)||{}).ann)),pctCell(sm.ann)],['Total',...per.map(o=>pctCell((summarize(o.c.rows)||{}).cum,0)),pctCell(sm.cum,0)]]);
+  }else{
+    tbl=table([{h:'Period',l:1},{h:'Start'},{h:'Money in'},{h:'Money out'},{h:'Investment gain'},{h:'End'},{h:'Return'}],
+      c.rows.map(r=>[pName(r.to,r.from)+star(r),fmt$(r.start),fmt$(r.contrib),fmt$(r.withdraw),{v:fmt$(r.gain),cls:r.gain<0?'down':''},fmt$(r.end),pctCell(r.ret)]),
+      [['Whole stretch',fmt$(sm.start),fmt$(sum(c.rows.map(r=>r.contrib))),fmt$(sum(c.rows.map(r=>r.withdraw))),fmt$(sm.gain),fmt$(sm.end),{v:fmtPct(sm.ann)+' a year'}]]);
+  }
+  out.push(section('Return in each period',`${scopeName()}, after taking out any money added or withdrawn.`,
+    ser.length>1?legend(ser):null,
+    fig(el=>chartGroup(el,{cats:ends.map(dPointShort),tips:c.rows.map(r=>pName(r.to,r.from)),series:ser,label:'Return in each period'})),
+    tbl,
+    c.rows.some(r=>!wholeYear(r))?h('p',{class:'note',text:`${c.rows.filter(r=>!wholeYear(r)).map(r=>pName(r.to,r.from)).join(' and ')} ${c.rows.filter(r=>!wholeYear(r)).length>1?'are not full years':'is not a full year'}, so compare with the full years carefully.`}):null,
+    derived?h('p',{class:'note',text:'* The starting balance for this period was not on a statement. It was worked out from the month-by-month chart on the first statement, so this return can be off by about a tenth of a point.'}):null));
+  const idx=per.map(o=>{ const v={}; let g=10000; if(o.c.rows.length){ v[o.c.rows[0].from]=g; for(const r of o.c.rows){ g*=1+(r.ret||0); v[r.to]=g; } } return {name:o.a.label,color:acctColor(o.a),values:c.dates.map(d=>v[d]==null?null:v[d])}; });
+  out.push(section('Growth of $10,000',accts.length>1?'Puts accounts of different sizes on the same footing: what $10,000 in each would have become.':'What $10,000 in this account at the start would have become.',
+    idx.length>1?legend(idx,true):null,
+    fig(el=>chartLine(el,{dates:c.dates,series:idx,fmt:v=>fmt$(v),tick:fmtK,label:'Growth of $10,000 in each account'}),
+      table([{h:'Date',l:1},...idx.map(q=>({h:q.name}))],c.dates.map((d,i)=>[dPoint(d),...idx.map(q=>fmt$(q.values[i]))])))));
+  out.push(section('How returns are worked out',null,h('p',{class:'small',text:'Return for a period = (ending balance − starting balance − net money added) ÷ (starting balance + half the net money added). Money added or withdrawn is treated as arriving mid-period. The yearly figure links every period together and converts it to a per-year rate, so it does not depend on how big the account was.'})));
+  return out;
+}
+
+function viewBench(){
+  const accts=scopeAccts(),c=combine(accts),sm=summarize(c.rows),out=[];
+  if(!sm) return [section('Only one statement so far','Add a second statement date on the Data tab to compare with an index.')];
+  const missing=c.rows.filter(r=>benchRet(r.to,'mix')==null).map(r=>pName(r.to,r.from));
+  const tr={sp:benchTrack(accts,'sp'),mix:benchTrack(accts,'mix')},last=c.dates[c.dates.length-1],act=c.pts[c.pts.length-1].value;
+  const col=accts.length===1?acctColor(accts[0]):'--s1';
+  const ser=[{name:scopeName(),color:col,strong:true,values:c.pts.map(p=>p.value)},{name:'Same money in S&P 500',short:'S&P 500',color:'--b1',values:c.dates.map(d=>tr.sp[d]==null?null:tr.sp[d])},{name:'Same money in 60/40 mix',short:'60/40 mix',color:'--b2',values:c.dates.map(d=>tr.mix[d]==null?null:tr.mix[d])}];
+  const bs={sp:benchSummary(c.rows,'sp'),mix:benchSummary(c.rows,'mix'),agg:benchSummary(c.rows,'agg')};
+  const gap=k=>tr[k][last]==null?null:act-tr[k][last];
+  const gapNote=k=>{ const g=gap(k); return g==null?'Index return missing':`${g>=0?'Ahead':'Behind'} by ${fmt$(Math.abs(g))}`; };
+  out.push(section('Against the same money in an index','What the starting balance would be worth today at index returns, with the same money going in and out on the same schedule.',
+    missing.length?h('p',{class:'banner',text:`No index return entered for ${missing.join(', ')}. Add it under Index returns on the Data tab.`}):null,
+    h('div',{class:'facts'},
+      h('div',null,h('span',{class:'k',text:scopeName()}),h('span',{class:'v',text:fmt$(act)}),h('span',{class:'n',text:fmtPct(sm.ann)+' a year'})),
+      h('div',null,h('span',{class:'k',text:'In the S&P 500'}),h('span',{class:'v',text:fmt$(tr.sp[last])}),h('span',{class:'n',text:`${fmtPct(bs.sp&&bs.sp.ann)} a year. ${gapNote('sp')}`})),
+      h('div',null,h('span',{class:'k',text:'In a 60/40 mix'}),h('span',{class:'v',text:fmt$(tr.mix[last])}),h('span',{class:'n',text:`${fmtPct(bs.mix&&bs.mix.ann)} a year. ${gapNote('mix')}`}))),
+    h('div',{style:{height:'16px'}}),legend(ser,true),
+    fig(el=>chartLine(el,{dates:c.dates,series:ser,fmt:v=>fmt$(v),tick:fmtK,label:'Actual balance against index alternatives'}),
+      table([{h:'Date',l:1},{h:'Actual'},{h:'S&P 500'},{h:'60/40 mix'}],c.dates.map((d,i)=>[dPoint(d),fmt$(c.pts[i].value),fmt$(tr.sp[d]),fmt$(tr.mix[d])])))));
+  const diff=(a,b)=>a==null||b==null?{v:DASH}:{v:fmtPts(a-b),cls:a-b<-5e-5?'down':''};
+  out.push(section('Period by period',null,table(
+    [{h:'Period',l:1},{h:scopeName()},{h:'S&P 500'},{h:'60/40 mix'},{h:'US bonds'},{h:'vs S&P 500'},{h:'vs 60/40'}],
+    c.rows.map(r=>{ const a=benchRet(r.to,'sp'),b=benchRet(r.to,'mix'); return [pName(r.to,r.from)+(r.derived?' *':''),pctCell(r.ret),pctCell(a),pctCell(b),pctCell(benchRet(r.to,'agg')),diff(r.ret,a),diff(r.ret,b)]; }),
+    [['Per year',pctCell(sm.ann),pctCell(bs.sp&&bs.sp.ann),pctCell(bs.mix&&bs.mix.ann),pctCell(bs.agg&&bs.agg.ann),diff(sm.ann,bs.sp&&bs.sp.ann),diff(sm.ann,bs.mix&&bs.mix.ann)]])));
+  if(accts.length>1) out.push(section('Each account against the indexes','Yearly return over the whole stretch.',table(
+    [{h:'Account',l:1},{h:'Return per year'},{h:'vs S&P 500'},{h:'vs 60/40'},{h:'Dollars vs S&P 500'}],
+    accts.map(a=>{ const r=combine([a]),q=summarize(r.rows); if(!q) return [a.label,DASH,DASH,DASH,DASH]; const b1=benchSummary(r.rows,'sp'),b2=benchSummary(r.rows,'mix'),t=benchTrack([a],'sp')[r.dates[r.dates.length-1]],g=t==null?null:q.end-t;
+      return [a.label,pctCell(q.ann),diff(q.ann,b1&&b1.ann),diff(q.ann,b2&&b2.ann),{v:g==null?DASH:fmt$(g),cls:g<0?'down':''}]; }))));
+  out.push(section('About the indexes',null,h('p',{class:'small',text:'S&P 500 is the index total return with dividends reinvested. US bonds is the Bloomberg US Aggregate Bond Index. The 60/40 mix is 60% S&P 500 and 40% US bonds, reset to those weights at the start of each period. Index figures have no fund fees or trading costs, so a real index fund would land slightly lower. The figures can be edited on the Data tab.'})));
+  return out;
+}
+
+function viewAlloc(){
+  const accts=scopeAccts(),c=combine(accts),out=[],dates=c.dates.filter(d=>hasHoldings(accts,d));
+  if(!dates.length) return [section('No holdings loaded','Add holdings for at least one statement on the Data tab to see the mix and fund costs.')];
+  const last=dates[dates.length-1],mix=mixAt(accts,last),used=CLASSES.filter(k=>dates.some(d=>mixAt(accts,d).cls[k]));
+  const parts=d=>{ const mm=mixAt(accts,d); return used.map(k=>({name:k,color:CLASS_COLOR[k],value:mm.cls[k]||0})); };
+  out.push(section('What the money is in',`${scopeName()}, ${dLong(last)}.`,
+    h('div',{class:'meter',role:'img','aria-label':'Mix by type of investment'},parts(last).filter(p=>p.value>0).map(p=>h('i',{style:{background:cv(p.color),flex:`${p.value} 0 0`}}))),
+    table([{h:'Type',l:1},{h:'Amount'},{h:'Share'}],parts(last).filter(p=>p.value>0).map(p=>[h('span',null,h('i',{class:'sw',style:{background:cv(p.color),'margin-right':'7px'}}),p.name),fmt$(p.value),fmtPct(p.value/mix.total)]),[['Total',fmt$(mix.total),'100%']])));
+  if(dates.length>1) out.push(section('How the mix has changed',null,legend(used.map(k=>({name:k,color:CLASS_COLOR[k]}))),
+    fig(el=>chartShare(el,{rows:dates.map(d=>({name:dPointShort(d),tip:dPoint(d),parts:parts(d)})),label:'Mix by type of investment at each statement'}),
+      table([{h:'Date',l:1},...used.map(k=>({h:k}))],dates.map(d=>{ const mm=mixAt(accts,d); return [dPoint(d),...used.map(k=>fmtPct((mm.cls[k]||0)/mm.total,0))]; })))));
+  const bk=BUCKETS.map(b=>({b,v:sum(accts.filter(a=>a.taxBucket===b).map(a=>{ const p=a.periods.find(x=>x.asOf===last); return p?p.end:0; }))})).filter(o=>o.v>0),bt=sum(bk.map(o=>o.v));
+  out.push(section('How it will be taxed',null,
+    h('div',{class:'meter',role:'img','aria-label':'Balance by tax treatment'},bk.map(o=>h('i',{style:{background:cv(BUCKET_COLOR[o.b]),flex:`${o.v} 0 0`}}))),
+    table([{h:'Tax treatment',l:1},{h:'Amount'},{h:'Share'}],bk.map(o=>[h('span',null,h('i',{class:'sw',style:{background:cv(BUCKET_COLOR[o.b]),'margin-right':'7px'}}),BUCKET_NAME[o.b]),fmt$(o.v),fmtPct(o.v/bt)]))));
+  out.push(section('Holdings and what they cost',`Yearly cost is the fund's expense ratio times the amount held. It is taken out of the fund's price, so it never shows as a line on a statement.`,
+    h('div',{class:'facts'},
+      h('div',null,h('span',{class:'k',text:'Fund expenses a year'}),h('span',{class:'v',text:fmt$(mix.cost)}),h('span',{class:'n',text:'At current holdings'})),
+      h('div',null,h('span',{class:'k',text:'Average expense ratio'}),h('span',{class:'v',text:fmtPct(mix.cost/mix.total,2)}),h('span',{class:'n',text:'Weighted by amount held'})),
+      h('div',null,h('span',{class:'k',text:'Account fees charged'}),h('span',{class:'v',text:fmt$(sum(accts.flatMap(a=>a.periods.map(p=>p.fees||0))))}),h('span',{class:'n',text:'All statements loaded'}))),
+    table([{h:'Holding',l:1,w:1},{h:'Amount'},{h:'Share'},{h:'Expense ratio'},{h:'Yearly cost'}],
+      mix.hold.map(x=>{ const f=funds()[x.symbol]; return [{v:x.symbol==='CASH'?'Cash':x.symbol,sub:x.symbol==='CASH'?'Bank sweep':((f&&f.name)||'Not in the fund list')+(accts.length>1?(new Set(x.accts).size===accts.length?', in every account':`, in ${[...new Set(x.accts)].join(' and ')}`):'')},fmt$(x.value),fmtPct(x.value/mix.total),x.symbol==='CASH'?DASH:(f?erOf(x.symbol).toFixed(2)+'%':DASH),x.symbol==='CASH'?DASH:fmt$(x.value*erOf(x.symbol)/100)]; }),
+      [['Total',fmt$(mix.total),'100%',fmtPct(mix.cost/mix.total,2),fmt$(mix.cost)]])));
+  out.push(section('Cash and costs by year','Cash in a bank sweep earns almost nothing, so the interest column shows what idle cash actually paid.',table(
+    [{h:'Date',l:1},{h:'Cash'},{h:'Cash share'},{h:'Interest earned'},{h:'Fund expenses'},{h:'Avg expense ratio'},{h:'Account fees'}],
+    dates.map(d=>{ const mm=mixAt(accts,d),ps=accts.map(a=>a.periods.find(x=>x.asOf===d)).filter(Boolean),known=ps.every(p=>p.interest!=null);
+      return [dPoint(d),fmt$(mm.cls.Cash||0),fmtPct((mm.cls.Cash||0)/mm.total),known?fmt$(sum(ps.map(p=>p.interest)),2):DASH,fmt$(mm.cost),fmtPct(mm.cost/mm.total,2),fmt$(sum(ps.map(p=>p.fees||0)))]; })),
+    h('p',{class:'note',text:'Fund expenses use today\'s expense ratios applied to what was held on each date. A dash means the statement did not show a full-year figure.'})));
+  return out;
+}
+
+/* ---------- Data tab ---------- */
+function viewData(){
+  const out=[],d=D();
+  const ta=h('textarea',{placeholder:'Paste the contents of a data file here','aria-label':'Pasted data'});
+  const tryLoad=txt=>{ try{ setData(JSON.parse(txt),'Loaded. Everything on the other tabs now uses this data.'); }catch(e){ state.msg=e instanceof SyntaxError?'That text is not a complete data file. Copy the whole file, from the first { to the last }.':e.message; render(); } };
+  out.push(section('Your data file','The balances and holdings live in a separate file that you load here. It is remembered in this browser only; nothing is uploaded.',
+    h('div',{class:'row'},h('button',{class:'btn',onclick:()=>$('#file').click(),text:'Load data file'}),
+      d?h('button',{class:'btn quiet',onclick:()=>{ const a=h('a',{href:URL.createObjectURL(new Blob([exportText()],{type:'application/json'})),download:'account-evaluator-data.json'}); document.body.append(a); a.click(); a.remove(); state.msg='Backup saved to your downloads.'; render(); },text:'Save a backup file'}):null,
+      d?h('button',{class:'btn quiet',onclick:()=>{ const t=exportText(); (navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>{ state.msg='Data copied.'; render(); },()=>{ ta.value=t; ta.select(); state.msg='Copy the selected text below.'; $('.msg').textContent=state.msg; }); },text:'Copy data'}):null),
+    h('p',{class:'msg',role:'status',text:state.msg}),
+    h('details',{open:d?null:true},h('summary',{text:'Paste data instead'}),ta,h('div',{class:'row'},h('button',{class:'btn quiet',onclick:()=>tryLoad(ta.value),text:'Load pasted data'}))),
+    !d?h('div',{class:'row'},h('button',{class:'btn quiet',onclick:()=>setData(exampleData()),text:'Try it with example data'})):null));
+  if(!d) return out;
+  const commit=()=>{ for(const a of d.accounts) a.periods.sort((x,y)=>x.asOf<y.asOf?-1:1); state.msg=''; save(); render(); };
+  const numIn=(obj,key,cls,nullable)=>h('input',{type:'number',step:'any',inputmode:'decimal',class:cls||null,value:obj[key]==null?'':obj[key],'aria-label':key,onchange:e=>{ obj[key]=e.target.value===''&&nullable?null:num(e.target.value); commit(); }});
+  const txtIn=(obj,key,up)=>h('input',{type:'text',value:obj[key]||'','aria-label':key,onchange:e=>{ obj[key]=up?e.target.value.trim().toUpperCase():e.target.value.trim(); commit(); }});
+  const acctEds=d.accounts.map(a=>{
+    const rows=[];
+    a.periods.forEach((p,i)=>{
+      const key=a.id+'|'+p.asOf,open=state.openHold.has(key),hs=sum(p.holdings.map(x=>x.value))+p.cash,off=p.holdings.length&&Math.abs(hs-p.end)>0.5;
+      rows.push(h('tr',null,
+        h('td',{class:'l'},h('input',{type:'date',value:p.asOf,'aria-label':'Statement date',onchange:e=>{ if(e.target.value&&!a.periods.some(q=>q!==p&&q.asOf===e.target.value)){ state.openHold.delete(key); p.asOf=e.target.value; } commit(); }})),
+        h('td',null,numIn(p,'end')),h('td',null,i?numIn(p,'contrib','narrow'):null),h('td',null,i?numIn(p,'withdraw','narrow'):null),h('td',null,i?numIn(p,'cash','narrow'):null),
+        h('td',null,i?numIn(p,'interest','narrow',true):null),h('td',null,i?numIn(p,'fees','narrow'):null),
+        h('td',{class:'l'},h('button',{class:'btn quiet tiny',onclick:()=>{ open?state.openHold.delete(key):state.openHold.add(key); render(); },text:`${open?'Hide':'Edit'} holdings (${p.holdings.length})`}),' ',
+          a.periods.length>1?h('button',{class:'btn quiet tiny','aria-label':`Remove the ${p.asOf} statement`,onclick:()=>{ if(confirm(`Remove the ${dLong(p.asOf)} statement from ${a.label}?`)){ a.periods.splice(i,1); commit(); } },text:'Remove'}):null)));
+      if(off||p.note||(!i&&p.derived)) rows.push(h('tr',null,h('td',{class:'l',colspan:8},h('div',{class:'pnote'},off?h('span',{class:'down',text:`Holdings plus cash come to ${fmt$(hs,2)}, which is ${fmt$(Math.abs(hs-p.end),2)} ${hs>p.end?'more':'less'} than the balance. `}):null,h('span',{class:'small',text:(!i&&p.derived?'Estimated starting balance. ':'')+p.note})))));
+      if(open) rows.push(h('tr',null,h('td',{colspan:8,class:'l'},h('div',{class:'hold'},h('table',{class:'edit'},
+        h('thead',null,h('tr',null,['Symbol','Shares','Price','Value',''].map((t,k)=>h('th',{class:k?null:'l',text:t})))),
+        h('tbody',null,p.holdings.map((x,k)=>h('tr',null,h('td',{class:'l'},txtIn(x,'symbol',true)),h('td',null,numIn(x,'qty','narrow')),h('td',null,numIn(x,'price','narrow')),h('td',null,numIn(x,'value')),
+          h('td',null,h('button',{class:'btn quiet tiny',onclick:()=>{ p.holdings.splice(k,1); commit(); },text:'Remove'})))))),
+        h('div',{class:'row'},h('button',{class:'btn quiet tiny',onclick:()=>{ p.holdings.push({symbol:'',qty:0,price:0,value:0}); commit(); },text:'Add a holding'}))))));
+    });
+    return h('details',{class:'acct-edit',open:state.openAcct.has(a.id)?true:null,ontoggle:e=>{ e.target.open?state.openAcct.add(a.id):state.openAcct.delete(a.id); }},
+      h('summary',null,h('i',{class:'dot',style:{background:cv(acctColor(a)),'margin-right':'8px'}}),`${a.label}, ${a.periods.length} statements`),
+      h('div',{class:'fields'},h('label',null,'Name',txtIn(a,'label')),h('label',null,'Account type',txtIn(a,'type')),
+        h('label',null,'Tax treatment',h('select',{onchange:e=>{ a.taxBucket=e.target.value; commit(); }},BUCKETS.map(b=>h('option',{value:b,selected:a.taxBucket===b?true:null,text:BUCKET_NAME[b]}))))),
+      h('div',{class:'tscroll'},h('table',{class:'edit'},h('thead',null,h('tr',null,['Statement date','Balance','Money in','Money out','Cash','Interest','Fees',''].map((t,k)=>h('th',{class:k===0||k===7?'l':null,text:t})))),h('tbody',null,rows))),
+      h('div',{class:'row'},h('button',{class:'btn quiet',onclick:()=>{ const lp=a.periods[a.periods.length-1],y=+lp.asOf.slice(0,4)+(isYE(lp.asOf)?1:0),nd=`${y}-12-31`;
+          a.periods.push({asOf:nd,end:lp.end,contrib:0,withdraw:0,cash:lp.cash,fees:0,dividends:null,interest:null,derived:false,note:'',holdings:lp.holdings.map(x=>({...x}))}); state.openHold.add(a.id+'|'+nd); commit(); },text:'Add a statement'}),
+        h('button',{class:'btn quiet',onclick:()=>{ if(confirm(`Remove ${a.label} and all its statements?`)){ d.accounts.splice(d.accounts.indexOf(a),1); state.scope='all'; commit(); } },text:'Remove this account'})));
+  });
+  out.push(section('Accounts and statements','Change a number and everything recalculates. Add a statement copies the last one so only the new figures need typing. When a year-end statement replaces a mid-year one, change the date and figures on the mid-year row instead of adding, so the year stays whole.',acctEds,
+    h('div',{class:'row'},h('button',{class:'btn quiet',onclick:()=>{ const id='acct'+Date.now(); d.accounts.push({id,label:'New account',type:'',owner:'',custodian:'',taxBucket:'pre-tax',periods:[{asOf:(d.accounts[0]?d.accounts[0].periods[0].asOf:'2025-12-31'),end:0,contrib:0,withdraw:0,cash:0,fees:0,dividends:null,interest:null,derived:false,note:'',holdings:[]}]}); state.openAcct.add(id); commit(); },text:'Add an account'}))));
+  const ends=combine(d.accounts).rows.map(r=>[r.to,r.from]),bt=benchTable();
+  const bIn=(date,key)=>h('input',{type:'number',step:'any',inputmode:'decimal',class:'narrow',value:bt[date]&&bt[date][key]!=null?bt[date][key]:'','aria-label':`${key} ${date}`,onchange:e=>{ const cur={...(bt[date]||{sp:null,agg:null})}; cur[key]=e.target.value===''?null:num(e.target.value); d.benchmarks[date]=cur; commit(); }});
+  out.push(section('Index returns','Total return in percent over each period shown. For a new statement date, look up the figure and type it in.',
+    h('div',{class:'tscroll'},h('table',{class:'edit'},h('thead',null,h('tr',null,h('th',{class:'l',text:'Period'}),h('th',{text:'S&P 500 %'}),h('th',{text:'US bonds %'}))),
+      h('tbody',null,ends.map(([e,f])=>h('tr',null,h('td',{class:'l w',text:pName(e,f)}),h('td',null,bIn(e,'sp')),h('td',null,bIn(e,'agg')))))))));
+  const syms=[...new Set(d.accounts.flatMap(a=>a.periods.flatMap(p=>p.holdings.map(x=>x.symbol))))].filter(Boolean).sort(),fl=funds();
+  const fSet=(sym,key,val)=>{ d.funds[sym]={...(fl[sym]||{name:'',er:0,class:'Other'}),[key]:val}; commit(); };
+  if(syms.length) out.push(section('Fund costs and types','Expense ratios change now and then. Check the fund company\'s page if a figure matters.',
+    h('div',{class:'tscroll'},h('table',{class:'edit'},h('thead',null,h('tr',null,h('th',{class:'l',text:'Symbol'}),h('th',{class:'l',text:'Name'}),h('th',{class:'l',text:'Type'}),h('th',{text:'Expense ratio %'}))),
+      h('tbody',null,syms.map(sym=>{ const f=fl[sym]||{name:'',er:0,class:'Other'}; return h('tr',null,h('td',{class:'l',text:sym}),
+        h('td',{class:'l'},h('input',{type:'text',value:f.name,'aria-label':`${sym} name`,style:{'min-width':'150px'},onchange:e=>fSet(sym,'name',e.target.value.trim())})),
+        h('td',{class:'l'},h('select',{'aria-label':`${sym} type`,onchange:e=>fSet(sym,'class',e.target.value)},CLASSES.map(k=>h('option',{value:k,selected:f.class===k?true:null,text:k})))),
+        h('td',null,h('input',{type:'number',step:'any',inputmode:'decimal',class:'narrow',value:f.er,'aria-label':`${sym} expense ratio`,onchange:e=>fSet(sym,'er',num(e.target.value))}))); }))))));
+  return out;
+}
+
+/* ---------- shell ---------- */
+function render(){
+  hideTip(); pending=[];
+  const d=D();
+  if(d&&state.scope!=='all'&&!d.accounts.some(a=>a.id===state.scope)) state.scope='all';
+  $('#title').textContent=d&&d.title?d.title:'Account Evaluator';
+  document.title=d&&d.title?`${d.title} | Account Evaluator`:'Account Evaluator';
+  const lastDate=d&&d.accounts.length?d.accounts.map(a=>a.periods[a.periods.length-1].asOf).sort().pop():null;
+  $('#asof').textContent=lastDate?`Statements through ${dLong(lastDate)}`:'';
+  $('#tabs').replaceChildren(...TABS.map(([id,name])=>h('button',{role:'tab','aria-selected':state.tab===id?'true':'false',onclick:()=>{ state.tab=id; state.msg=''; save(); render(); scrollTo(0,0); },text:name})));
+  const showScope=d&&d.accounts.length>1&&state.tab!=='data';
+  $('#scopebar').hidden=!showScope;
+  if(showScope) $('#scope').replaceChildren(h('button',{class:'chip','aria-pressed':state.scope==='all'?'true':'false',onclick:()=>{ state.scope='all'; save(); render(); },text:'All accounts'}),
+    ...d.accounts.map(a=>h('button',{class:'chip','aria-pressed':state.scope===a.id?'true':'false',onclick:()=>{ state.scope=a.id; save(); render(); }},h('i',{class:'dot',style:{background:cv(acctColor(a))}}),a.label)));
+  const main=$('#main'); let body;
+  if(state.tab==='data') body=viewData();
+  else if(!d||!d.accounts.length) body=[viewEmpty()];
+  else body=({overview:viewOverview,returns:viewReturns,bench:viewBench,alloc:viewAlloc})[state.tab]();
+  main.replaceChildren(d&&d.example&&state.tab!=='data'?h('p',{class:'banner',text:'This is made-up example data. Load your own file on the Data tab.'}):null||'',...body);
+  for(const f of pending) f();
+}
+$('#file').addEventListener('change',ev=>{
+  const f=ev.target.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{ try{ setData(JSON.parse(rd.result),'Loaded. Everything on the other tabs now uses this data.'); if(state.tab==='data'){ state.tab='overview'; save(); render(); } }catch(e){ state.msg=e instanceof SyntaxError?'That file could not be read as a data file.':e.message; render(); } ev.target.value=''; };
+  rd.readAsText(f);
+});
+let rz; addEventListener('resize',()=>{ clearTimeout(rz); rz=setTimeout(()=>{ if(state.tab!=='data') render(); },150); });
+load(); render();
+</script>
+</body>
+</html>
