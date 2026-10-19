@@ -5,11 +5,41 @@
 // specific projection-row fields. Asserts fail-fast and the runner exits non-zero
 // on any failure.
 
+// How the app is tested. The engine is called and its rows checked. Pure
+// helpers in the desktop or phone source are run with runDesktop /
+// runDefinitions below rather than matched as text. Source patterns remain only
+// for wiring nothing else can see in a second — which component a tab renders,
+// that a removed screen stays removed. What a page actually shows is
+// tests/smoke-ui.cjs: the built app, in a browser.
+//
 // Shared engine — same module the desktop + mobile JSX files load via <script src>.
 const engine = require('../engine.js');
 // The desktop app's source: the parts in src/desktop/, joined exactly as the
 // build joins them (tools/sources.cjs). Every test that reads the app reads this.
 const DESKTOP_SRC = require('../tools/sources.cjs').readDesktopSource(require('path').resolve(__dirname, '..'));
+
+// Test a desktop helper by RUNNING it, not by matching its text. Each name is a
+// top-level `const name = …` or `function name(…)`; it is cut from the joined
+// source (ending at the first line that starts at column 0 — included when it
+// is the closing bracket) and the set is evaluated in order with `globals` in
+// scope. For pure helpers only: anything that renders is covered by
+// tests/smoke-ui.cjs, which runs the real page.
+const definitionIn = (src, name) => {
+  const m = new RegExp(`^(?:const ${name} = |function ${name}\\()`, 'm').exec(src);
+  if (!m) throw new Error(`no top-level ${name} in the source`);
+  const lines = src.slice(m.index).split('\n');
+  const out = [lines[0]];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^\S/.test(line)) { if (/^[}\])]/.test(line)) out.push(line); break; }
+    out.push(line);
+  }
+  return out.join('\n').replace(/\s+$/, '');
+};
+const runDefinitions = (src, names, globals = {}) => require('vm').runInNewContext(
+  names.map(n => definitionIn(src, n)).join('\n') + `\n({ ${names.join(', ')} })`, { ...globals });
+const desktopDefinition = (name) => definitionIn(DESKTOP_SRC, name);
+const runDesktop = (names, globals) => runDefinitions(DESKTOP_SRC, names, globals);
 console.log('Engine under test: ../engine.js (shared)');
 const { computeProjections, calculateFederalTax, calculateStateTax, calculateSocialSecurityTaxableAmount,
         calculateCapitalGainsTax, calculateNIIT, calculateRMD, calculateIRMAA,
@@ -15238,18 +15268,42 @@ section('P131 — state tables checked against 2026 law: four enacted changes, f
     // Maryland and Maine reduce their pension caps by ALL Social Security received.
     const md = (extra) => T(84000, 'Maryland', 'single', 0, 0.03, 34000, 50000, { primaryAge: 70, ...extra });
     approx(md({ totalSS: 40000 }) - md({}), 6000 * 0.0475, 'Maryland: $6,000 more is taxed when the cap is reduced by total, not taxable, SS', 0.02);
-    ok(/const MD_PENSION_CAP = 40600;/.test(engSrc), "Maryland's 2026 cap is $40,600 — it fell from $41,200");
-    ok(/MD_PENSION_CAP \* persons - \(totalSS \|\| 0\)/.test(engSrc), 'and is reduced by total Social Security');
-    ok(/const ME_PENSION_CAP = 49824;/.test(engSrc), "Maine's 2026 cap follows the maximum SS benefit, $4,152 × 12");
-    approx(49824, 4152 * 12, 'which is that benefit', 0);
-    approx(48216, 4018 * 12, 'as the 2025 figure was — the tie the cap follows', 0);
-    ok(/ME_PENSION_CAP \* taxpayers \* inf - \(totalSS \|\| 0\)/.test(engSrc), 'Maine is reduced by total SS too');
-    // Supplied by every call inside the projection, so the solver and the final
-    // calculation price the same exclusion.
-    eq((engSrc.match(/\{ totalSS: totalSocialSecurity, federalTaxPaid:/g) || []).length, 8,
-      'every state-tax call in the projection passes total Social Security');
-    ok(/totalSS: Number\.isFinite\(extraParams\.totalSS\) \? extraParams\.totalSS : taxableSS,/.test(engSrc),
-      'and a caller that cannot falls back to what the functions received before');
+    // The caps, found by where the exclusion stops: $50,000 of wages keeps
+    // the deduction out of the way, and a pension one dollar past the cap is
+    // the first that adds tax.
+    const capOf = (state) => {
+      const tax = (pension) => T(50000 + pension, state, 'single', 0, 0.03, 0, pension, { primaryAge: 70 });
+      const base = tax(0);
+      let lo = 0, hi = 80000;
+      while (hi - lo > 1) { const mid = Math.floor((lo + hi) / 2); if (tax(mid) - base > 0.005) hi = mid; else lo = mid; }
+      return lo;
+    };
+    approx(capOf('Maryland'), 40600, "Maryland's 2026 cap is $40,600 — it fell from $41,200", 0.0001);
+    approx(capOf('Maine'), 4152 * 12, "Maine's 2026 cap follows the maximum SS benefit, $4,152 × 12 = $49,824", 0.0001);
+    const me = (extra) => T(84000, 'Maine', 'single', 0, 0.03, 34000, 50000, { primaryAge: 70, ...extra });
+    gt(me({ totalSS: 40000 }) - me({}), 100, 'Maine is reduced by total SS too');
+    // A caller that cannot supply total SS falls back to the taxable figure the
+    // functions received before.
+    approx(md({}), md({ totalSS: 34000 }), 'without total SS, the taxable SS stands in for it', 1e-9);
+    // Every state-tax call inside the projection has to pass total SS, or the
+    // solver prices a different exclusion than the final calculation applies
+    // and the year misses. So: retirees in both states, on a pension and
+    // Social Security, under a target, a withdrawal-led strategy, and with a
+    // spouse still earning — every year lands.
+    ['Maryland', 'Maine'].forEach(state => {
+      const pi = { ...engine.DEFAULT_PLAN_INFO, myAge: 66, spouseAge: 64, myRetirementAge: 66, spouseRetirementAge: 67,
+        filingStatus: 'married_joint', state, desiredRetirementIncome: 110000, legacyAge: 92, inflationRate: 0.03,
+        survivorModelEnabled: false, healthcareModel: 'none', ltcModel: 'none' };
+      const accts = [{ id: 1, name: 'IRA', type: 'traditional_ira', owner: 'me', balance: 1500000, contribution: 0, cagr: 0.06, startAge: 66, stopAge: 66, contributor: 'me' }];
+      const streams = [
+        { id: 1, type: 'pension', owner: 'me', name: 'Pension', amount: 70000, startAge: 66, endAge: 120, cola: 0 },
+        { id: 2, type: 'social_security', owner: 'me', name: 'SS', amount: 36000, startAge: 67, endAge: 120, cola: 0.025 },
+        { id: 3, type: 'earned_income', owner: 'spouse', name: 'Pay', amount: 60000, startAge: 64, endAge: 66, cola: 0.03 }];
+      ['target', 'percent'].forEach(st => {
+        const rows = engine.computeProjections({ ...pi, withdrawalStrategy: st }, accts, streams, [], [], [], 2026, {});
+        lt(Math.max(...rows.map(r => Math.abs(r.solverResidual))), 25, `${state}, ${st}: the solver and the final tax agree on the exclusion every year`);
+      });
+    });
   }
   {
     // Connecticut excluded pensions but never IRA/401(k) withdrawals.
@@ -15900,7 +15954,10 @@ section('P140 — the pages load the build, not the compilers');
   // conditional classes that each might add a background.
   const rowTints = (jsx.match(/<tr [^>]*className=\{`[^`]*`\}/g) || []).filter(t => (t.match(/\$\{[^}]*'bg-/g) || []).length > 1);
   eq(rowTints.length, 0, 'no table row appends two independent background tints' + (rowTints.length ? ': ' + rowTints[0].slice(0, 120) : ''));
-  ok(/const swapClass = \(style, from, to\)/.test(jsx), 'overrides of a shared style go through swapClass');
+  const { swapClass } = runDesktop(['swapClass']);
+  eq(swapClass('w-full px-3 text-slate-100', 'text-slate-100', 'text-emerald-400'), 'w-full px-3 text-emerald-400',
+    'overrides of a shared style go through swapClass, which replaces the class in place');
+  eq(swapClass('w-full px-3', 'w-24', 'w-32'), 'w-full px-3', 'and changes nothing when the class is not there');
 }
 
 section('P141 — the Dashboard says whether the plan is on track, and what to do');
@@ -15944,10 +16001,7 @@ section('P141 — the Dashboard says whether the plan is on track, and what to d
   eq(engine.earliestSurvivingRetirementAge(ctx).age, ctx.pi.myRetirementAge, 'a funded plan needs no delay');
 
   // ── the verdict's tiers ──────────────────────────────────────────────────
-  const grab = (start, end) => { const a = jsx.indexOf(start); return jsx.slice(a, jsx.indexOf(end, a) + end.length); };
-  const code = ['HEALTH_SIMS', 'HEALTH_ON_TRACK', 'HEALTH_AT_RISK'].map(n => grab('const ' + n + ' = ', ';')).join('\n')
-    + '\n' + grab('const planHealthVerdict = ', '\n};');
-  const verdict = eval(code + '\nplanHealthVerdict');
+  const verdict = runDesktop(['HEALTH_SIMS', 'HEALTH_ON_TRACK', 'HEALTH_AT_RISK', 'planHealthVerdict']).planHealthVerdict;
   eq(verdict({ fails: true, shortAge: 81, lastAge: 95, mc: 0.9 }).tone, 'risk', 'a plan short at average returns is at risk, whatever the odds');
   ok(/runs short at age 81/.test(verdict({ fails: true, shortAge: 81, lastAge: 95, mc: null }).text), 'and says when');
   eq(verdict({ fails: false, lastAge: 95, mc: null }).tone, 'pending', 'before the markets are in, it says it is checking');
@@ -16163,9 +16217,7 @@ section('P144 — the plan as a timeline you can play');
   const ROOT = pathMod.resolve(__dirname, '..');
   const theme = require('../theme.js');
   const jsx = DESKTOP_SRC;
-  const grab = (start, end) => { const a = jsx.indexOf(start); return jsx.slice(a, jsx.indexOf(end, a) + end.length); };
-  const timelineMilestones = eval(grab('const timelineMilestones = ', '\n};') + '\ntimelineMilestones');
-  const placeTimelineLabels = eval(grab('const placeTimelineLabels = ', '\n};') + '\nplaceTimelineLabels');
+  const { timelineMilestones, placeTimelineLabels } = runDesktop(['timelineMilestones', 'placeTimelineLabels']);
 
   // Milestones are read off the engine's rows. A synthetic couple: retires at
   // 62, Social Security at 67, converts to the 22% bracket 62–64, survivor
@@ -16238,7 +16290,7 @@ section('P144 — the plan as a timeline you can play');
   eq((charts.match(/<ChartYearCursor /g) || []).length, 2, 'each draws it as an overlay that subscribes on its own');
   eq(/ReferenceLine x=\{focusAge\}/.test(jsx), false, 'rather than as a line inside the chart');
   eq((charts.match(/\{\.\.\.pickYearProps\(onPickAge\)\}/g) || []).length, 2, 'and a click on either chart picks the year');
-  const cursor = grab('const ChartYearCursor = ', '\n};');
+  const cursor = desktopDefinition('ChartYearCursor');
   ok(/recharts-xAxis \.recharts-cartesian-axis-tick/.test(cursor), 'the overlay is placed from the chart’s own axis ticks');
   ok(/pointerEvents: 'none'/.test(cursor), 'and never blocks the chart’s own hover and click');
 
@@ -16489,9 +16541,11 @@ section('P147 — Guyton-Klinger guardrails, as the research states them');
   approx(tr[off[5].myAge], spendingWithdrawalOf(off[4]) * 1.03 / off[4].totalPortfolio, 'the target for a year is last year’s withdrawal plus inflation over the start balance', 1e-9);
 
   // ── Money in today's dollars ─────────────────────────────────────────────
-  const eng = fsMod.readFileSync(pathMod.join(ROOT, 'engine.js'), 'utf8');
-  ok(/'guardrailAdjustment', 'strategyDraw',\n\];/.test(eng), 'the spending adjustment is money, so it is restated in today’s dollars');
-  ok(!/'guardrailRate'|'guardrailTargetRate'/.test(eng.slice(eng.indexOf('const REAL_DOLLAR_FIELDS'), eng.indexOf('const REAL_DOLLAR_MAPS'))), 'the rates are not');
+  const restated = engine.deflateProjections([{ year: 2026 }, { year: 2036, guardrailAdjustment: 1000, strategyDraw: 2000,
+    guardrailRate: 0.05, guardrailTargetRate: 0.04, guardrailMultiplier: 0.9 }], { inflationRate: 0.03 })[1];
+  approx(restated.guardrailAdjustment, 1000 / Math.pow(1.03, 10), 'the spending adjustment is money, so it is restated in today’s dollars', 1e-9);
+  approx(restated.strategyDraw, 2000 / Math.pow(1.03, 10), 'so is a strategy’s draw', 1e-9);
+  eq([restated.guardrailRate, restated.guardrailTargetRate, restated.guardrailMultiplier].join(','), '0.05,0.04,0.9', 'the rates and the multiplier are not');
 
   // ── Every screen runs the plan's rule ────────────────────────────────────
   // Monte Carlo: at zero volatility and the plan's own return, the plan's path
@@ -16739,10 +16793,14 @@ section('P149 — comparing every withdrawal strategy on the same markets');
   ok(guard.successRate >= tgt.successRate, 'guardrails run as a strategy of their own, not on top of another');
   // Spending counts what was DELIVERED: a target that ran out does not show
   // its full target in the lean years.
-  ok(/Math\.max\(0, \(p\.desiredIncome \|\| 0\) - \(p\.unfundedShortfall \|\| 0\)\)/.test(workerSrc), 'spending stats count delivered spending, net of any shortfall');
-  if (tgt.successRate < 1) lt(tgt.spending.p10Min, pi.desiredRetirementIncome, 'so a target that sometimes fails shows a leaner year than its target');
-  ok(/rand = seededRandom\(seed\);/.test(workerSrc) && /guardrails: \{ enabled: false \}/.test(workerSrc),
-    'the stream is reset per strategy, and Monte Carlo’s own guardrail test switch is off');
+  // A target that cannot be paid for: in the years it runs short, what it
+  // delivered is less than the target, and the spending figures say so.
+  const short = runJob('monteCarlo', { ...base, seed: 77, personalInfo: { ...pi, desiredRetirementIncome: 140000 } }).data;
+  lt(short.successRate, 0.5, '(a target the plan mostly cannot fund)');
+  lt(short.spendingStats.p10Min, 140000 * 0.8, 'spending stats count delivered spending, net of any shortfall, not the target');
+  // That each row above equals its strategy run alone, on the same seed, is
+  // the proof the random stream restarts per strategy and that the tab's own
+  // guardrail test switch stays out of the comparison.
 
   // The panel.
   ok(/window\.PlannerCompareWorker = makePlannerWorker\(\);/.test(html), 'the comparison has its own worker, so cancelling it cannot stop the tab’s simulation');
@@ -16791,9 +16849,7 @@ section('P151 — screens that show the spending target say when a strategy sets
 
   // The AI assistant: current model, and every tool call answered.
   ok(/const AI_MODEL = 'claude-opus-5-5';/.test(jsx), 'the assistant asks the current model');
-  const answerSrc = (/const answerToolUses = [\s\S]*?\n};\n/.exec(jsx) || [''])[0];
-  ok(answerSrc.length > 0, 'one helper answers the tool calls');
-  const answerToolUses = vmMod.runInNewContext(answerSrc.replace('const answerToolUses =', '(').replace(/;\s*$/, '') + ')');
+  const { answerToolUses } = runDesktop(['answerToolUses']);
   const reply = { role: 'assistant', content: [{ type: 'text', text: 'Here.' },
     { type: 'tool_use', id: 'a', input: { summary: 's', ops: [] } }, { type: 'tool_use', id: 'b', input: {} }] };
   const answered = answerToolUses([{ role: 'user', content: 'hi' }, reply], { toolUseId: 'a' }, 'applied');
@@ -16805,21 +16861,21 @@ section('P151 — screens that show the spending target say when a strategy sets
   ok(malformed[1].content.every(r => /not shown/.test(r.content)), 'a proposal that could not be read is still answered, so the next turn is not rejected');
   eq(answerToolUses([{ role: 'assistant', content: [{ type: 'text', text: 'ok' }] }], null, 'x').length, 1, 'a reply without a call is left alone');
   ok(/reply\.stop_reason === 'max_tokens'/.test(jsx), 'a reply cut off mid-proposal is not offered for review');
-  ok(/setProposal\(proposal\);\s+\/\/ and the proposal it would have declined/.test(jsx), 'a failed request puts the proposal back');
+  ok(/setMessages\(messages\);[^\n]*\n\s+setProposal\(proposal\);/.test(jsx), 'a failed request puts the proposal back');
 
   // The screens.
-  ok(/const strategyLeadsSpending = \(pi\) => PlannerEngine\.WITHDRAWAL_LED\.has/.test(jsx), 'one test for “a strategy sets spending”');
-  ok(/\.\.\.\(strategyLeadsSpending\(personalInfo\) \? strategyRateLever : \[\{\s+id: 'spending',/.test(jsx),
-    'Sensitivity varies the withdrawal rate, not an unused target');
-  ok(/\['constant', 'percent', 'vanguard'\]\.includes\(PlannerEngine\.withdrawalStrategyOf\(personalInfo\)\)/.test(jsx),
-    'for the strategies that have one');
+  const strat = runDesktop(['WITHDRAWAL_STRATEGY_CHOICES', 'strategyLeadsSpending', 'strategyLabelOf'], { PlannerEngine: engine });
+  eq(engine.WITHDRAWAL_STRATEGIES.filter(id => strat.strategyLeadsSpending({ withdrawalStrategy: id })).join(','),
+    'constant,percent,rmd,vanguard,vpw', 'one test for “a strategy sets spending”: the five withdrawal-led ones');
+  eq(strat.strategyLeadsSpending({ spendingGuardrailsEnabled: true }), false, 'a legacy guardrails plan spends its target');
+  eq(strat.strategyLabelOf({ withdrawalStrategy: 'vpw' }), 'Variable percentage withdrawal (VPW)', 'and each is named as the picker names it');
+  eq(strat.strategyLeadsSpending(undefined), false, 'a missing plan is a target plan, not a crash');
+  // Sensitivity's rate lever, What Breaks First's missing row and the Plan
+  // Summary's strategy line are checked on the real page by tests/smoke-ui.cjs.
   ok(/if \(strategySets\) return \[\];/.test(jsx) && /<StrategySetsSpendingNote pi=\{personalInfo\}>/.test(jsx),
     'Lifestyle vs Legacy says why it has nothing to vary, and skips the eight projections');
-  ok(/spending: strategyLeadsSpending\(pi\) \? null : breakingPoint\(ctx, 'spending'\)/.test(jsx), 'What Breaks First skips the spending edge');
-  ok(/\.filter\(r => r\.key !== 'spending' \|\| !strategyLeadsSpending\(pi\)\)/.test(jsx), 'and drops its row');
   ok(/WITHDRAWAL_LED\.has\(withdrawalStrategyOf\(ctx\.pi\)\) \? null : breakingPoint\(ctx, 'spending'\)/.test(mobileJsx), 'so does the phone');
   ok(/\? \(retirementProjection\?\.desiredIncome \|\| 0\)/.test(jsx), 'Safe Spending measures the strategy’s own first year');
-  ok(/<p style=\{statLabel\}>Withdrawal Strategy<\/p>/.test(jsx), 'the Plan Summary names the strategy');
   ok(/Not used while your withdrawal strategy/.test(jsx), 'and About you says the target is not used');
   ok(/of the spending your withdrawal strategy sets each year/.test(jsx), 'nor the gift figure it would size');
   ok(/pickRef\.current\(selRef\.current \+ 1\)/.test(jsx), 'the timeline plays the plan as it is now');
@@ -16905,18 +16961,15 @@ section('P153 — the phone runs every withdrawal strategy');
 {
   const fsMod = require('fs'), pathMod = require('path');
   const mob = fsMod.readFileSync(pathMod.join(pathMod.resolve(__dirname, '..'), 'retirement-planner-mobile.jsx'), 'utf8');
-  const list = mob.slice(mob.indexOf('const MOBILE_STRATEGIES = ['), mob.indexOf('];', mob.indexOf('const MOBILE_STRATEGIES = [')));
-  eq([...list.matchAll(/\{ id: '(\w+)'/g)].map(m => m[1]).join(','), engine.WITHDRAWAL_STRATEGIES.join(','),
+  const m = runDefinitions(mob, ['MOBILE_DEFAULTS', 'MOBILE_STRATEGIES', 'strategyHasRate']);
+  eq(m.MOBILE_STRATEGIES.map(x => x.id).join(','), engine.WITHDRAWAL_STRATEGIES.join(','),
     'the phone’s picker is the engine’s seven, in the same order');
-  ok(/withdrawalStrategy: 'target',\s+strategyRate: 4,\s+\};/.test(mob), 'the example plan spends its target, at a 4% rate if switched');
-  ok(/withdrawalStrategy,\s+spendingGuardrailsEnabled: withdrawalStrategy === 'guardrails',\s+strategyRatePct: strategyRate \/ 100,/.test(mob),
-    'the projection runs the chosen strategy');
-  const deps = (mob.match(/\}, \[currentAge, retirementAge, legacyAge, portfolio, annualContribution, desiredSpending, cagr, inflationRate,[\s\S]*?birthYear\]\);/) || [''])[0];
-  ['contributionMode', 'currentSalary', 'contributionPercent', 'withdrawalStrategy', 'strategyRate'].forEach(k =>
-    ok(new RegExp(`\\b${k}\\b`).test(deps), `and re-runs when ${k} changes`));
-  ok(/withdrawalStrategy, strategyRate,\s+\}\), SAVE_DEBOUNCE_MS\)/.test(mob), 'the choice is saved with the other inputs');
-  ok(/label="First-year spending"/.test(mob) && /Not used while \$\{strategyInfo\.label\} sets your spending/.test(mob),
-    'a strategy that sets spending shows its first year, and says the target is unused');
+  ok(m.MOBILE_STRATEGIES.every(x => x.label && x.hint), 'each with a name and a one-line explanation');
+  eq(`${m.MOBILE_DEFAULTS.withdrawalStrategy} ${m.MOBILE_DEFAULTS.strategyRate}`, 'target 4', 'the example plan spends its target, at a 4% rate if switched');
+  eq(engine.WITHDRAWAL_STRATEGIES.filter(m.strategyHasRate).join(','), 'constant,percent,vanguard', 'the rate slider is offered where a strategy has a rate');
+  // That the phone runs the chosen strategy, shows its first year, re-runs on
+  // every input and remembers the choice is checked on the real page by
+  // tests/smoke-ui.cjs.
 }
 
 section('P154 — the desktop app is parts, joined by one rule');

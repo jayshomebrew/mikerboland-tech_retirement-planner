@@ -292,6 +292,21 @@ const check = async (browser, base, name, opts, fn) => {
         ok(leads ? /First-year spending/i.test(text) && /Not used while/.test(text) : /Sustainable spending/i.test(text),
           `phone, ${id}: the spending card ${leads ? 'shows the strategy’s first year' : 'is the 4% capacity'}`);
       }
+      // Every input re-runs the plan. Switching to % of salary and moving its
+      // slider once left the results on the old projection.
+      const atRetirement = () => v.page.evaluate(() => {
+        const card = [...document.querySelectorAll('section div')].find((d) => /^Portfolio at retirement/i.test(d.innerText.trim()));
+        return card ? card.innerText : '';
+      });
+      const fixed = await atRetirement();
+      await v.page.click('button:text-is("% of salary")');
+      await v.page.waitForTimeout(250);
+      const percent = await atRetirement();
+      ok(percent !== fixed && percent !== '', 'phone: switching to % of salary re-runs the plan', `${fixed.split('\n')[1]} → ${percent.split('\n')[1]}`);
+      await v.page.locator('input[type="range"]').nth(3).fill('20');
+      await v.page.waitForTimeout(250);
+      const raised = await atRetirement();
+      ok(raised !== percent, 'phone: so does moving the contribution percent', `${percent.split('\n')[1]} → ${raised.split('\n')[1]}`);
       // A reload keeps the choice: it is saved with the other inputs.
       await v.page.selectOption('select[aria-label="Withdrawal strategy"]', 'vpw');
       await v.page.waitForTimeout(1200);
