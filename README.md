@@ -63,6 +63,11 @@ node tests/run-tests.cjs
 ```
 The suite exercises the shared calc engine (`engine.js`) — federal/state tax brackets, RMD, Social Security taxation, IRMAA, the early-withdrawal penalty, the age-65 deductions, Roth bracket-fill, and full projection integration tests.
 
+```
+node tests/smoke-ui.cjs        # or: npm run smoke
+```
+The browser smoke test loads the built pages in headless Chromium on the app's own sample plan (it clears browser storage first, so no real plan is involved). It opens every tab under each of the seven withdrawal strategies and across the looks. It also checks the interactions that have broken before: hiding and restoring a panel, playing the timeline, Sensitivity's figures, the strategy comparison, the reports and the phone page. Any page or console error fails the run, which takes about two minutes. It needs Playwright with Chromium (`npm i -g playwright && npx playwright install chromium`) and skips with a message if they're missing. Build first: it tests the compiled app, not the source.
+
 ### Building (after any change to the source)
 ```
 npm install          # once — installs Tailwind 3.4.17, used only by the build

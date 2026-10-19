@@ -21649,6 +21649,7 @@ const ThemeSwatch = ({ colors }) => (
 const NavItem = ({ id, label, icon, activeTab, setActiveTab, sidebarCollapsed }) => (
   <button
     onClick={() => setActiveTab(id)}
+    data-tab={id}
     aria-current={activeTab === id ? 'page' : undefined}
     className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all ${
       activeTab === id
