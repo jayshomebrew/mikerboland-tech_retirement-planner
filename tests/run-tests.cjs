@@ -16751,6 +16751,115 @@ section('P149 — comparing every withdrawal strategy on the same markets');
   ok(/mine && <span[^>]*>your plan<\/span>/.test(jsx), 'marking the plan’s own strategy');
 }
 
+section('P150 — a withdrawal-led strategy sizes the gift from its own spending');
+
+{
+  // The gift is a share of spending. Under a withdrawal-led strategy the
+  // spending is what the strategy's draw nets, so the solver has to size the
+  // gift — and the QCD it prices — from that, not from the target the strategy
+  // replaced. Sized from the target, every QCD year missed by up to $590 here.
+  const pi = { ...engine.DEFAULT_PLAN_INFO, myAge: 66, myRetirementAge: 66, filingStatus: 'single', state: 'Colorado',
+    desiredRetirementIncome: 90000, legacyAge: 95, inflationRate: 0.03, charitableGivingPercent: 10 };
+  const accts = [
+    { id: 1, name: 'IRA', type: 'traditional_ira', owner: 'me', balance: 1600000, contribution: 0, cagr: 0.06, startAge: 66, stopAge: 66, contributor: 'me' },
+    { id: 2, name: 'Brok', type: 'brokerage', owner: 'me', balance: 300000, contribution: 0, cagr: 0.06, startAge: 66, stopAge: 66, contributor: 'me', costBasisPercent: 0.7 }];
+  const ss = [{ id: 1, type: 'social_security', owner: 'me', name: 'SS', amount: 32000, startAge: 67, endAge: 120, cola: 0.03 }];
+  engine.WITHDRAWAL_STRATEGIES.forEach(st => {
+    const rows = engine.computeProjections({ ...pi, withdrawalStrategy: st }, accts, ss, [], [], [], 2026, {});
+    const qcdYears = rows.filter(r => r.myAge >= 70 && r.myAge <= 85);
+    ok(qcdYears.every(r => r.qcd > 0), `${st}: the QCD years give through the IRA`);
+    lt(Math.max(...qcdYears.map(r => Math.abs(r.solverResidual))), 25, `${st}: and the solver lands on the year it delivers`);
+    ok(qcdYears.every(r => Math.abs(r.charitableGiving - r.desiredIncome * 0.10) <= 1), `${st}: the gift is 10% of the spending the year shows`);
+  });
+  // With a bracket fill, the room is re-sized with the gift, so the solver and
+  // the executor still share one figure.
+  const filled = engine.computeProjections({ ...pi, withdrawalStrategy: 'percent', withdrawalBracketFill: '22%' }, accts, ss, [], [], [], 2026, {});
+  lt(Math.max(...filled.filter(r => r.myAge >= 70).map(r => Math.abs(r.solverResidual))), 25, 'with a bracket fill as well');
+}
+
+section('P151 — screens that show the spending target say when a strategy sets spending');
+
+{
+  const fsMod = require('fs'), pathMod = require('path'), vmMod = require('vm');
+  const ROOT = pathMod.resolve(__dirname, '..');
+  const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+  const mobileJsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner-mobile.jsx'), 'utf8');
+  const workerSrc = fsMod.readFileSync(pathMod.join(ROOT, 'worker.js'), 'utf8');
+
+  // The AI assistant: current model, and every tool call answered.
+  ok(/const AI_MODEL = 'claude-opus-5-5';/.test(jsx), 'the assistant asks the current model');
+  const answerSrc = (/const answerToolUses = [\s\S]*?\n};\n/.exec(jsx) || [''])[0];
+  ok(answerSrc.length > 0, 'one helper answers the tool calls');
+  const answerToolUses = vmMod.runInNewContext(answerSrc.replace('const answerToolUses =', '(').replace(/;\s*$/, '') + ')');
+  const reply = { role: 'assistant', content: [{ type: 'text', text: 'Here.' },
+    { type: 'tool_use', id: 'a', input: { summary: 's', ops: [] } }, { type: 'tool_use', id: 'b', input: {} }] };
+  const answered = answerToolUses([{ role: 'user', content: 'hi' }, reply], { toolUseId: 'a' }, 'applied');
+  const results = answered[answered.length - 1].content;
+  eq(results.map(r => r.tool_use_id).join(','), 'a,b', 'every call in the reply gets a result, not just the one on screen');
+  eq(results[0].content, 'applied', 'the shown proposal gets the user’s answer');
+  ok(/not shown/.test(results[1].content), 'and one that was never shown is told so');
+  const malformed = answerToolUses([reply], null, 'x');
+  ok(malformed[1].content.every(r => /not shown/.test(r.content)), 'a proposal that could not be read is still answered, so the next turn is not rejected');
+  eq(answerToolUses([{ role: 'assistant', content: [{ type: 'text', text: 'ok' }] }], null, 'x').length, 1, 'a reply without a call is left alone');
+  ok(/reply\.stop_reason === 'max_tokens'/.test(jsx), 'a reply cut off mid-proposal is not offered for review');
+  ok(/setProposal\(proposal\);\s+\/\/ and the proposal it would have declined/.test(jsx), 'a failed request puts the proposal back');
+
+  // The screens.
+  ok(/const strategyLeadsSpending = \(pi\) => PlannerEngine\.WITHDRAWAL_LED\.has/.test(jsx), 'one test for “a strategy sets spending”');
+  ok(/\.\.\.\(strategyLeadsSpending\(personalInfo\) \? strategyRateLever : \[\{\s+id: 'spending',/.test(jsx),
+    'Sensitivity varies the withdrawal rate, not an unused target');
+  ok(/\['constant', 'percent', 'vanguard'\]\.includes\(PlannerEngine\.withdrawalStrategyOf\(personalInfo\)\)/.test(jsx),
+    'for the strategies that have one');
+  ok(/if \(strategySets\) return \[\];/.test(jsx) && /<StrategySetsSpendingNote pi=\{personalInfo\}>/.test(jsx),
+    'Lifestyle vs Legacy says why it has nothing to vary, and skips the eight projections');
+  ok(/spending: strategyLeadsSpending\(pi\) \? null : breakingPoint\(ctx, 'spending'\)/.test(jsx), 'What Breaks First skips the spending edge');
+  ok(/\.filter\(r => r\.key !== 'spending' \|\| !strategyLeadsSpending\(pi\)\)/.test(jsx), 'and drops its row');
+  ok(/WITHDRAWAL_LED\.has\(withdrawalStrategyOf\(ctx\.pi\)\) \? null : breakingPoint\(ctx, 'spending'\)/.test(mobileJsx), 'so does the phone');
+  ok(/\? \(retirementProjection\?\.desiredIncome \|\| 0\)/.test(jsx), 'Safe Spending measures the strategy’s own first year');
+  ok(/<p style=\{statLabel\}>Withdrawal Strategy<\/p>/.test(jsx), 'the Plan Summary names the strategy');
+  ok(/Not used while your withdrawal strategy/.test(jsx), 'and About you says the target is not used');
+  ok(/of the spending your withdrawal strategy sets each year/.test(jsx), 'nor the gift figure it would size');
+  ok(/pickRef\.current\(selRef\.current \+ 1\)/.test(jsx), 'the timeline plays the plan as it is now');
+
+  // A plan whose couple both die before the legacy age ends at the last
+  // death. Sensitivity and Lifestyle vs Legacy read a row at the legacy age,
+  // found none, and showed $0 for every figure.
+  const early = { ...engine.DEFAULT_PLAN_INFO, myAge: 60, spouseAge: 58, myRetirementAge: 62, spouseRetirementAge: 62,
+    filingStatus: 'married_joint', survivorModelEnabled: true, myLifeExpectancy: 85, spouseLifeExpectancy: 87, legacyAge: 95 };
+  const earlyRows = engine.computeProjections(early, [{ id: 1, name: 'IRA', type: 'traditional_ira', owner: 'me', balance: 900000,
+    contribution: 0, cagr: 0.06, startAge: 60, stopAge: 60, contributor: 'me' }], [], [], [], [], 2026, {});
+  lt(earlyRows[earlyRows.length - 1].myAge, 95, 'such a plan ends before its legacy age');
+  ok(/const endAge = lastRowAge != null \? Math\.min\(personalInfo\.legacyAge \|\| 95, lastRowAge\)/.test(jsx),
+    'so Sensitivity ends where the plan does');
+  ok(/const atEnd = proj\.find\(p => p\.myAge === endAge\) \|\| proj\[proj\.length - 1\];/.test(jsx), 'in every scenario it runs');
+  ok(/const legacyYear = proj\.find\(p => p\.myAge === legacyAge\) \|\| proj\[proj\.length - 1\];/.test(jsx)
+    && /Legacy at \{legacyAgeShown\}/.test(jsx), 'and Lifestyle vs Legacy reads, and labels, the last year there is');
+
+  // The Sensitivity lever moves the plan it claims to.
+  const pi = { ...engine.DEFAULT_PLAN_INFO, myAge: 62, myRetirementAge: 62, filingStatus: 'single', state: 'Texas',
+    desiredRetirementIncome: 60000, legacyAge: 95, inflationRate: 0.03, withdrawalStrategy: 'percent' };
+  const accts = [{ id: 1, name: 'IRA', type: 'traditional_ira', owner: 'me', balance: 900000, contribution: 0, cagr: 0.06, startAge: 62, stopAge: 62, contributor: 'me' }];
+  const end = (p) => engine.computeProjections(p, accts, [], [], [], [], 2026, {}).slice(-1)[0].totalPortfolio;
+  eq(Math.round(end({ ...pi, desiredRetirementIncome: 100000 })), Math.round(end(pi)), 'under a strategy the target moves nothing');
+  lt(end({ ...pi, strategyRatePct: 0.05 }), end(pi), 'and the rate it varies instead does');
+
+  // The Dashboard's solve skips the spending edge it would not show.
+  const sb = { console, Math, Date, JSON, Object, Array, Number, String, Boolean, Set, Map,
+    Infinity, NaN, isNaN, parseFloat, parseInt, Error, RegExp, Promise, undefined, URLSearchParams, __out: [] };
+  sb.self = sb; sb.globalThis = sb; sb.location = { search: '?v=test' };
+  sb.importScripts = (spec) => vmMod.runInContext(fsMod.readFileSync(pathMod.join(ROOT, spec.split('?')[0]), 'utf8'), sb);
+  sb.postMessage = (m) => { if (m.type !== 'progress') sb.__out.push(m); };
+  vmMod.createContext(sb);
+  vmMod.runInContext(workerSrc, sb);
+  const solve = (personalInfo) => {
+    sb.__out.length = 0;
+    sb.onmessage({ data: { jobId: 1, type: 'planSolve', payload: { personalInfo, accounts: accts, incomeStreams: [] } } });
+    return sb.__out.find(m => m.type === 'result').data;
+  };
+  eq(solve(pi).spendingEdge, null, 'the Dashboard’s solve skips the edge under a strategy');
+  ok(Number.isFinite(solve({ ...pi, withdrawalStrategy: 'target' }).spendingEdge), 'and still finds it for a target');
+}
+
 // ── Summary ──────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(60)}`);
 if (fail === 0) {

@@ -1418,7 +1418,10 @@ function runPlanSolve(jobId, payload) {
     assetList: assets || [], events: oneTimeEvents || [], recurring: recurringExpenses || [],
     opts: { ...(opts || {}), ...(currentYearReturn ? { currentYearReturn } : {}) },
   };
-  const edge = E.survivableEdge(ctx, 'spending');
+  // Under a withdrawal-led strategy the target does nothing and the Dashboard
+  // does not ask for its edge; skip the eighteen projections it would cost.
+  const edge = E.WITHDRAWAL_LED.has(E.withdrawalStrategyOf(personalInfo || {})) ? null
+    : E.survivableEdge(ctx, 'spending');
   const base = E.computeProjections(ctx.pi, ctx.accts, ctx.streams, ctx.assetList, ctx.events,
     ctx.recurring, undefined, ctx.opts);
   const short = E.planShortfall(base, { retirementAge: ctx.pi.myRetirementAge });

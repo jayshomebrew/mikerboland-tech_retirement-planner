@@ -2,7 +2,7 @@
 const PlannerEngine = (typeof window !== 'undefined' && window.PlannerEngine) || {};
 const {
   MAX_AGE, BROKERAGE_COST_BASIS_ESTIMATE, MAX_ITERATIONS_FOR_TAX_CALC, MONTE_CARLO_TAX_ESTIMATE, SAVE_DEBOUNCE_MS, PRE_TAX_TYPES, ROTH_TYPES, BROKERAGE_TYPES, HSA_TYPES, isPreTaxAccount, isRothAccount, isBrokerageAccount, isHSAAccount, FEDERAL_TAX_BRACKETS_2026, STANDARD_DEDUCTION_2026, STATE_TAX_RATES, STATES_EXEMPT_RETIREMENT_INCOME, STATES_EXEMPT_ALL_RETIREMENT_DISTRIBUTIONS, STATES_THAT_TAX_SS, ALABAMA_TAX_BRACKETS, ALABAMA_PERSONAL_EXEMPTION, ALABAMA_OVER_65_RETIREMENT_EXCLUSION, getAlabamaStandardDeduction, calculateAlabamaTax, FICA_SS_RATE, FICA_SS_WAGE_BASE_2025, FICA_MEDICARE_RATE, FICA_ADDITIONAL_MEDICARE_RATE, FICA_ADDITIONAL_MEDICARE_THRESHOLD, calculateFICA, RMD_FACTORS, IRMAA_THRESHOLDS_2025, SS_FULL_RETIREMENT_AGE, ACA_FPL_2025, QCD_ANNUAL_LIMIT, QCD_START_AGE, SS_EARNINGS_TEST_LIMIT_2025, SS_EARNINGS_TEST_FRA_LIMIT_2025, MEDICARE_PART_B_STANDARD_2025, calculateIRMAA, calculateIRMAASurcharge, calculateSSEarningsTestReduction, calculateSSBenefit, getRmdStartAge, getDefaultRothConversionWindow, calculateACASubsidy, calculateHealthcareExpenses, calculateRecurringExpenses, MEDICARE_PART_B_PREMIUM_2025, MEDICARE_PART_D_PREMIUM_2025, MEDICARE_SUPPLEMENT_PREMIUM_2025, MEDICARE_OOP_ANNUAL_2025, PRE_65_HEALTHCARE_ANNUAL_2025, MEDICAL_INFLATION_RATE, LTC_MONTHLY_ASSISTED_LIVING_2025, LTC_DEFAULT_DURATION_MONTHS, calculateFederalTax, calculateStateTax, calculateRMD, calculateSocialSecurityTaxableAmount, CAPITAL_GAINS_THRESHOLDS_2025, calculateCapitalGainsTax, calculateNIIT, computeProjections,
-  planShortfall, breakingPoint, STRESS_DIMENSIONS
+  planShortfall, breakingPoint, STRESS_DIMENSIONS, WITHDRAWAL_LED, withdrawalStrategyOf
 } = PlannerEngine;
 
 // React globals are provided by mobile.html
@@ -285,7 +285,9 @@ function BreakingPointPanel({ ctx, projections, retirementAge }) {
         setEdges({
           returnDrop: breakingPoint(ctx, 'returnDrop'),
           inflation: breakingPoint(ctx, 'inflation'),
-          spending: breakingPoint(ctx, 'spending'),
+          // A withdrawal-led strategy sets spending itself; the target this
+          // would vary does nothing, so there is no edge to find.
+          spending: WITHDRAWAL_LED && WITHDRAWAL_LED.has(withdrawalStrategyOf(ctx.pi)) ? null : breakingPoint(ctx, 'spending'),
         });
       } catch (e) {
         setEdges({ error: e.message });

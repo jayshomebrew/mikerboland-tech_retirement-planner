@@ -10409,7 +10409,9 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
       
       // Calculate QCD parameters for this year (needed for tax estimation)
       // Note: charitablePercent is declared in outer scope for pre-retirement year access
-      const charitableGiving = charitablePercent > 0 ? desiredIncome * (charitablePercent / 100) : 0;
+      // A let: under a withdrawal-led strategy the gift is re-sized from the
+      // spending the strategy's draw delivers (see the strategy block below).
+      let charitableGiving = charitablePercent > 0 ? desiredIncome * (charitablePercent / 100) : 0;
       // Use pre-calculated inflation factor for QCD limit
       const adjustedQCDLimit = QCD_ANNUAL_LIMIT * inflationFactor;
       const householdQCDLimit = effectiveFilingStatus === 'married_joint' ? adjustedQCDLimit * 2 : adjustedQCDLimit;
@@ -10429,7 +10431,7 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
       // rest. The room is sized once here, before the solver, so the solver
       // and the executor draw against the same figure.
       const fillBracket = isRetired && (afterTaxGap > 0 || strategyDraw !== null) ? String(pi.withdrawalBracketFill || '') : '';
-      const bracketFillRoom = fillBracket ? ordinaryBracketRoom(fillBracket, {
+      const sizeBracketFillRoom = () => fillBracket ? ordinaryBracketRoom(fillBracket, {
         filingStatus: effectiveFilingStatus, taxIndexYears, inflationRate: pi.inflationRate, inflationFactor,
         // QCD dollars are excluded from income; the RMD-funded share is the only
         // part known before the draw is sized, so that is the part credited.
@@ -10438,6 +10440,7 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
         capitalGains: brokerageDividends + assetSaleTaxableGain,
         totalSocialSecurity, preTaxDeduction, fedOpts,
       }) : 0;
+      let bracketFillRoom = sizeBracketFillRoom();
       yearBracketFill = { bracket: fillBracket, room: bracketFillRoom };
 
       // ── WITHDRAWAL-COMPOSITION ESTIMATOR ────────────────────────────────────────
@@ -10661,8 +10664,24 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
       // re-stated so the solver below lands on the chosen draw plus whatever the
       // plan's modelled costs (healthcare, care, IRMAA, recurring and one-time
       // expenses) add on top of it — the same place they sit under a target.
+      //
+      // The charitable gift is a share of spending, so it has to follow the
+      // strategy's spending rather than the target it replaced — the final
+      // calculation sizes the gift (and so the QCD) from this figure. Sizing it
+      // from the old target priced a different QCD here than the final
+      // calculation applied, and every QCD year missed by $1,000–1,400. The two
+      // depend on each other (the QCD moves the draw's tax, which moves its
+      // net), so a few passes settle them; the gift is a small share and each
+      // pass shrinks the change.
       if (strategyDraw !== null && isRetired) {
-        desiredIncome = Math.max(0, netFromDraw(strategyDraw) + netCurrentIncome);
+        for (let pass = 0; pass < 4; pass++) {
+          desiredIncome = Math.max(0, netFromDraw(strategyDraw) + netCurrentIncome);
+          const gift = charitablePercent > 0 ? desiredIncome * (charitablePercent / 100) : 0;
+          if (Math.abs(gift - charitableGiving) < 1) break;
+          charitableGiving = gift;
+          bracketFillRoom = sizeBracketFillRoom();
+          yearBracketFill = { bracket: fillBracket, room: bracketFillRoom };
+        }
         afterTaxGap = Math.max(0, desiredIncome + oneTimeExpenseTotal + healthcareExpense
           + totalRecurringExpenses + estACANetPremium + estimatedIRMAA - netCurrentIncome);
       }

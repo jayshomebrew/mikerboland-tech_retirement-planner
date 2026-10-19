@@ -1565,7 +1565,7 @@ const buttonSecondary = "bg-slate-700 hover:bg-slate-600 text-slate-100 font-med
 // to serve this repo locally — a key inside that file would be one `git add .`
 // from a public repository. Separate key, never exported, never in a scenario.
 const AI_KEY_STORAGE = 'retirement_planner_ai_key';
-const AI_MODEL = 'claude-opus-5';
+const AI_MODEL = 'claude-opus-5-5';
 const AI_API_URL = 'https://api.anthropic.com/v1/messages';
 
 const loadAiKey = () => {
@@ -1611,6 +1611,26 @@ const AI_PATCH_TOOL = {
     },
     required: ['summary', 'ops'],
   },
+};
+
+// Every tool_use in the last reply needs its tool_result before the next turn —
+// the API rejects the request otherwise. The proposal on screen gets the user's
+// answer; any other call (a second one in the same reply, or one whose input
+// could not be read because the reply was cut off) is told it was never shown,
+// so the model does not assume it landed.
+const answerToolUses = (history, proposal, answer) => {
+  const last = history[history.length - 1];
+  const calls = last && last.role === 'assistant' && Array.isArray(last.content)
+    ? last.content.filter(b => b.type === 'tool_use') : [];
+  if (!calls.length) return history;
+  return history.concat([{
+    role: 'user',
+    content: calls.map(b => ({
+      type: 'tool_result', tool_use_id: b.id,
+      content: proposal && b.id === proposal.toolUseId ? answer
+        : 'This proposal was not shown to the user because it could not be read. Nothing was changed.',
+    })),
+  }]);
 };
 
 // What the model is told about the plan. Deliberately the whole plan plus a
@@ -1731,19 +1751,12 @@ function AiAssistantTab({ computeProjections, plan, projections, onApply }) {
     if (!text.trim() || busy) return;
     setError(null);
 
-    // An unresolved tool_use has to be answered before the next user turn — the
-    // API rejects the request otherwise. Typing instead of deciding is a
-    // decline, and the model is told so rather than left to guess.
-    const history = messages.slice();
-    if (proposal) {
-      history.push({
-        role: 'user',
-        content: [{ type: 'tool_result', tool_use_id: proposal.toolUseId,
-                    content: 'The user did not apply these changes; they replied instead.' }],
-      });
-      setProposal(null);
-    }
-    history.push({ role: 'user', content: text });
+    // Typing instead of deciding is a decline, and the model is told so rather
+    // than left to guess.
+    const history = answerToolUses(messages, proposal,
+      'The user did not apply these changes; they replied instead.')
+      .concat([{ role: 'user', content: text }]);
+    setProposal(null);
     setMessages(history);
     setInput('');
     setBusy(true);
@@ -1753,7 +1766,11 @@ function AiAssistantTab({ computeProjections, plan, projections, onApply }) {
       const next = history.concat([{ role: 'assistant', content: reply.content }]);
       setMessages(next);
       const toolUse = (reply.content || []).find(b => b.type === 'tool_use');
-      if (toolUse && Array.isArray(toolUse.input && toolUse.input.ops)) {
+      // A reply cut off at max_tokens can carry a half-written proposal; it is
+      // not shown, and the next turn tells the model so (answerToolUses).
+      if (reply.stop_reason === 'max_tokens') {
+        setError('Claude’s reply ran out of room before it finished. Try asking for less at once.');
+      } else if (toolUse && Array.isArray(toolUse.input && toolUse.input.ops)) {
         const priced = priceProposal(toolUse.input.ops);
         setProposal({ toolUseId: toolUse.id, summary: toolUse.input.summary, ops: toolUse.input.ops, ...priced });
       }
@@ -1763,6 +1780,7 @@ function AiAssistantTab({ computeProjections, plan, projections, onApply }) {
     } catch (e) {
       setError(e.message);
       setMessages(messages);   // roll back the optimistic user turn
+      setProposal(proposal);   // and the proposal it would have declined
     } finally {
       setBusy(false);
     }
@@ -1771,11 +1789,8 @@ function AiAssistantTab({ computeProjections, plan, projections, onApply }) {
   const resolveProposal = (accepted) => {
     if (!proposal) return;
     if (accepted) onApply(proposal.next);
-    setMessages(prev => prev.concat([{
-      role: 'user',
-      content: [{ type: 'tool_result', tool_use_id: proposal.toolUseId,
-                  content: accepted ? 'The user applied these changes.' : 'The user declined these changes.' }],
-    }]));
+    setMessages(prev => answerToolUses(prev, proposal,
+      accepted ? 'The user applied these changes.' : 'The user declined these changes.'));
     setProposal(null);
   };
 
@@ -7873,6 +7888,13 @@ function MonteCarloTab({ accounts, assets, currentYearReturn, detailLevel, incom
       <Section tab="montecarlo" id="incomeContext" title={<>💰 Income & Withdrawal Context</>} vis={sectionVisibility} level={detailLevel} setVis={setSectionVisibility}>
         <div className="space-y-3">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pb-3 border-b border-slate-700">
+            {strategyLeadsSpending(personalInfo) ? (
+            <div>
+              <div className="text-xs text-slate-500 mb-1">Annual Spending</div>
+              <div className="text-lg font-semibold text-slate-100">Set by your strategy</div>
+              <div className="text-xs text-slate-400">{strategyLabelOf(personalInfo)}</div>
+            </div>
+            ) : (
             <div>
               <div className="text-xs text-slate-500 mb-1">Annual Spending Goal</div>
               <div className="text-lg font-semibold text-slate-100">
@@ -7880,6 +7902,7 @@ function MonteCarloTab({ accounts, assets, currentYearReturn, detailLevel, incom
               </div>
               <div className="text-xs text-slate-400">Today&rsquo;s dollars &mdash; grows with inflation</div>
             </div>
+            )}
             <div>
               <div className="text-xs text-slate-500 mb-1">Guaranteed Income Streams</div>
               <div className="text-lg font-semibold text-emerald-400">
@@ -9079,14 +9102,14 @@ function StressTestTab({ detailLevel, sectionVisibility, setSectionVisibility, a
               <div className="text-lg font-bold text-emerald-400">{formatCurrency(retirementPortfolio)}</div>
             </div>
             <div>
-              <div className="text-xs text-slate-500">Annual Spending Goal</div>
+              <div className="text-xs text-slate-500">{strategyLeadsSpending(personalInfo) ? 'First-Year Spending' : 'Annual Spending Goal'}</div>
               {/* Both figures below are in the dollars of the retirement YEAR. Showing
                   today's desiredRetirementIncome against a future portfolio balance
                   mixed real and nominal dollars and understated the withdrawal rate
                   by the whole inflation factor — a plan drawing 6.7% displayed as
                   1.5%, which made stress-test failures look impossible. */}
               <div className="text-lg font-bold text-amber-400">{formatCurrency(retirementProjection?.desiredIncome || personalInfo.desiredRetirementIncome)}</div>
-              <div className="text-[10px] text-slate-500">in age-{retirementAge} dollars</div>
+              <div className="text-[10px] text-slate-500">in age-{retirementAge} dollars{strategyLeadsSpending(personalInfo) ? ' · set by your strategy' : ''}</div>
             </div>
             <div>
               <div className="text-xs text-slate-500">Withdrawal Rate</div>
@@ -10370,7 +10393,11 @@ function SocialSecurityTab({ accounts, assets, computeProjections, currentYearRe
 // ============================================
 function SensitivityTab({ detailLevel, sectionVisibility, setSectionVisibility, accounts, assets, computeProjections, incomeStreams, oneTimeEvents, personalInfo, projections, recurringExpenses }) {
   const retirementAge = personalInfo.myRetirementAge;
-  const endAge = personalInfo.legacyAge || 95;
+  // The plan's last year: the legacy age, or sooner when both life expectancies
+  // fall before it, since the projection stops at the last death. Reading a row
+  // at an age the projection never reaches put $0 in every figure on this tab.
+  const lastRowAge = projections.length ? projections[projections.length - 1].myAge : null;
+  const endAge = lastRowAge != null ? Math.min(personalInfo.legacyAge || 95, lastRowAge) : (personalInfo.legacyAge || 95);
 
   // This year's dollar contribution to an account, in either entry mode. Percent
   // mode stores rates, not dollars, so reading `contribution` alone reports $0 for
@@ -10402,6 +10429,22 @@ function SensitivityTab({ detailLevel, sectionVisibility, setSectionVisibility, 
   const [showRealDollars, setShowRealDollars] = useState(true);
   const money = (step, key) => showRealDollars ? step[key] : step[key + 'Nominal'];
   const dollarBasis = showRealDollars ? "today's $" : 'future $';
+
+  // Under a withdrawal-led strategy the spending target does nothing, so its
+  // lever would draw a flat line. The strategies set by a rate vary that rate
+  // instead; the RMD method and VPW have no such knob, so the lever goes.
+  const strategyRate = personalInfo.strategyRatePct ?? 0.04;
+  const strategyRateLever = ['constant', 'percent', 'vanguard'].includes(PlannerEngine.withdrawalStrategyOf(personalInfo)) ? [{
+    id: 'spending',
+    label: 'Withdrawal Rate',
+    baseLabel: 'Current rate',
+    baseValue: strategyRate,
+    steps: [-0.01, -0.005, 0, 0.005, 0.01].filter(d => strategyRate + d >= 0.005),
+    formatStep: (base, delta) => `${((base + delta) * 100).toFixed(1)}%`,
+    formatDelta: (delta) => `${delta > 0 ? '+' : ''}${(delta * 100).toFixed(1)}%`,
+    apply: (delta) => computeProjections({ ...personalInfo, strategyRatePct: strategyRate + delta },
+      accounts, incomeStreams, assets, oneTimeEvents, recurringExpenses),
+  }] : [];
 
   // Define the sensitivity variables and their ranges
   const sensitivityVars = [
@@ -10439,7 +10482,7 @@ function SensitivityTab({ detailLevel, sectionVisibility, setSectionVisibility, 
           assets, oneTimeEvents, recurringExpenses);
       }
     },
-    {
+    ...(strategyLeadsSpending(personalInfo) ? strategyRateLever : [{
       id: 'spending',
       label: 'Annual Spending Goal',
       baseLabel: 'Current goal',
@@ -10451,7 +10494,7 @@ function SensitivityTab({ detailLevel, sectionVisibility, setSectionVisibility, 
         const modifiedPI = { ...personalInfo, desiredRetirementIncome: Math.max(0, personalInfo.desiredRetirementIncome + delta) };
         return computeProjections(modifiedPI, accounts, incomeStreams, assets, oneTimeEvents, recurringExpenses);
       }
-    },
+    }]),
     {
       id: 'inflation',
       label: 'Inflation Rate',
@@ -10625,7 +10668,7 @@ function SensitivityTab({ detailLevel, sectionVisibility, setSectionVisibility, 
             : retirementAge;
           
           const atRetirement = proj.find(p => p.myAge === scenarioRetAge);
-          const atEnd = proj.find(p => p.myAge === endAge);
+          const atEnd = proj.find(p => p.myAge === endAge) || proj[proj.length - 1];
           const failureAge = proj.find(p => p.myAge >= scenarioRetAge && p.totalPortfolio <= 0);
           
           // Every figure below is reported in TODAY's dollars. The engine returns
@@ -10654,7 +10697,7 @@ function SensitivityTab({ detailLevel, sectionVisibility, setSectionVisibility, 
             isBase,
             scenarioInflation: scenInflation,
             portfolioAtRetirement: toToday(atRetirement?.totalPortfolio || 0, scenarioRetAge),
-            portfolioAtEnd: toToday(atEnd?.totalPortfolio || 0, endAge),
+            portfolioAtEnd: toToday(atEnd?.totalPortfolio || 0, atEnd ? atEnd.myAge : endAge),
             // Both currencies are carried so the toggle never re-runs the sweep —
             // and so the nominal figures can be reconciled against the dashboard,
             // which reports nominal. A user comparing the two tabs sees a ~3x gap
@@ -10735,10 +10778,17 @@ function SensitivityTab({ detailLevel, sectionVisibility, setSectionVisibility, 
             <div className="text-xs text-slate-500">Portfolio at Age {endAge}</div>
             <div className="text-lg font-bold text-amber-400">{formatCurrency(baseEndProj?.totalPortfolio)}</div>
           </div>
+          {strategyLeadsSpending(personalInfo) ? (
+          <div>
+            <div className="text-xs text-slate-500">Spending</div>
+            <div className="text-sm font-bold text-slate-200">Set by {strategyLabelOf(personalInfo)}</div>
+          </div>
+          ) : (
           <div>
             <div className="text-xs text-slate-500">Spending Goal (today&rsquo;s $)</div>
             <div className="text-lg font-bold text-slate-200">{formatCurrency(personalInfo.desiredRetirementIncome)}/yr</div>
           </div>
+          )}
           <div>
             <div className="text-xs text-slate-500">Retire at / Plan to</div>
             <div className="text-lg font-bold text-slate-200">Age {retirementAge} → {endAge}</div>
@@ -11752,7 +11802,15 @@ function PersonalInfoTab({ onShowEverything, onOpenTaxPlanning, accounts, dataWa
               />
             </div>
           </div>
-          <p className="text-xs text-slate-500 mt-2">This is your target annual spending in retirement (in today's dollars). It will be adjusted for inflation each year.</p>
+          {strategyLeadsSpending(localInfo) ? (
+            <p className="text-xs text-slate-400 mt-2">
+              Not used while your withdrawal strategy, <strong>{strategyLabelOf(localInfo)}</strong>, sets your spending
+              (see Withdrawal strategy below). It is kept for when you switch back, and Coast FIRE still reads it as the
+              spending you are aiming for.
+            </p>
+          ) : (
+            <p className="text-xs text-slate-500 mt-2">This is your target annual spending in retirement (in today's dollars). It will be adjusted for inflation each year.</p>
+          )}
         </div>
         
         <HideableBlock tab="personal" id="charitable" level={detailLevel}
@@ -11770,14 +11828,16 @@ function PersonalInfoTab({ onShowEverything, onOpenTaxPlanning, accounts, dataWa
               />
             </div>
             <div className="col-span-1 lg:col-span-3 flex items-center">
-              {(localInfo.charitableGivingPercent || 0) > 0 && (
+              {(localInfo.charitableGivingPercent || 0) > 0 && (strategyLeadsSpending(localInfo) ? (
+                <div className="text-sm text-slate-400">of the spending your withdrawal strategy sets each year</div>
+              ) : (
                 <div className="text-sm text-slate-400">
                   <span className="text-emerald-400 font-medium">
                     {formatCurrency(localInfo.desiredRetirementIncome * (localInfo.charitableGivingPercent / 100))}
                   </span>
                   {' '}per year in today's dollars
                 </div>
-              )}
+              ))}
             </div>
           </div>
           <div className="mt-3 p-3 bg-emerald-900/20 border border-emerald-700/30 rounded-lg">
@@ -12542,7 +12602,9 @@ function PersonalInfoTab({ onShowEverything, onOpenTaxPlanning, accounts, dataWa
               <div className="flex justify-between text-xs text-slate-400 px-2">
                 <span>Column: Name | Category | Annual $ | Start Age | → | End Age | Inflation | ✕</span>
                 <span className="text-amber-400 font-medium">
-                  These add to your base retirement spending ({formatCurrency(personalInfo.desiredRetirementIncome)}/yr). Dated before retirement? Paid by pausing saving, then drawing.
+                  {strategyLeadsSpending(personalInfo)
+                    ? 'These are paid on top of what your withdrawal strategy draws.'
+                    : `These add to your base retirement spending (${formatCurrency(personalInfo.desiredRetirementIncome)}/yr).`} Dated before retirement? Paid by pausing saving, then drawing.
                 </span>
               </div>
             </div>
@@ -12550,7 +12612,9 @@ function PersonalInfoTab({ onShowEverything, onOpenTaxPlanning, accounts, dataWa
           
           {recurringExpenses.length === 0 && (
             <p className="text-xs text-slate-500 italic">
-              No recurring expenses defined. Your retirement spending is based solely on the Desired Retirement Income ({formatCurrency(personalInfo.desiredRetirementIncome)}/yr) above. 
+              No recurring expenses defined. {strategyLeadsSpending(personalInfo)
+                ? 'Your retirement spending is set by your withdrawal strategy.'
+                : `Your retirement spending is based solely on the Desired Retirement Income (${formatCurrency(personalInfo.desiredRetirementIncome)}/yr) above.`}{' '}
               Add expenses here for things like car payments (ages 55-60), college tuition (ages 54-58), or travel budgets (ages 65-80). Expenses dated BEFORE you retire are paid by pausing that year's saving first, then by drawing from the portfolio (with tax, and the 10% penalty if you're under 59½) — so an expense in your working years now reduces the plan, as it should.
             </p>
           )}
@@ -14015,7 +14079,12 @@ function CoastFireSection({ accounts, personalInfo, retirementProjection, openIn
 // LifestyleVsLegacy — Lifted to module scope
 // ============================================
 function LifestyleVsLegacy({ projections, personalInfo, accounts, incomeStreams, assets, oneTimeEvents, recurringExpenses, retirementAge, openInfoCard, toggleInfoCard, computeProjections, toggleVisibility, badge }) {
+  const strategySets = strategyLeadsSpending(personalInfo);
+  const lastRow = projections && projections.length ? projections[projections.length - 1] : null;
+  const legacyAgeShown = Math.min(personalInfo.legacyAge || 95, lastRow ? lastRow.myAge : Infinity);
   const scenarios = useMemo(() => {
+    // Every row would be the same plan: the strategy, not the target, sets spending.
+    if (strategySets) return [];
     const baseDesired = personalInfo.desiredRetirementIncome;
     const adjustments = [-30, -20, -10, 0, 10, 20, 30, 50];
     const legacyAge = personalInfo.legacyAge || 95;
@@ -14027,13 +14096,15 @@ function LifestyleVsLegacy({ projections, personalInfo, accounts, incomeStreams,
       const modifiedPI = { ...personalInfo, desiredRetirementIncome: adjustedDesired };
       const proj = computeProjections(modifiedPI, accounts, incomeStreams, assets, oneTimeEvents, recurringExpenses);
       
-      const legacyYear = proj.find(p => p.myAge === legacyAge);
+      // The projection stops at the last death, which can come before the
+      // legacy age; what is left then is the legacy.
+      const legacyYear = proj.find(p => p.myAge === legacyAge) || proj[proj.length - 1];
       const legacyAtTarget = legacyYear ? legacyYear.totalPortfolio : 0;
       const runsOutAge = proj.find(p => p.myAge >= retirementAge && p.totalPortfolio <= 0)?.myAge || null;
       
       return { adjustment: adj, spending: adjustedDesired, legacy: Math.round(legacyAtTarget), runsOut: runsOutAge };
     });
-  }, [personalInfo, accounts, incomeStreams, assets, oneTimeEvents]);
+  }, [strategySets, personalInfo, accounts, incomeStreams, assets, oneTimeEvents, recurringExpenses, retirementAge, computeProjections]);
   
   return (
     <div className={cardStyle}>
@@ -14078,6 +14149,12 @@ function LifestyleVsLegacy({ projections, personalInfo, accounts, incomeStreams,
         </button>
         )}
       </div>
+      {strategySets ? (
+        <StrategySetsSpendingNote pi={personalInfo}>
+          The same tradeoff, strategy by strategy (what each lets you spend against what it leaves), is the
+          comparison on Will it last?
+        </StrategySetsSpendingNote>
+      ) : (<>
       <p className="text-sm text-slate-400 mb-4">
         See how different spending levels affect your legacy. Your current plan is highlighted.
       </p>
@@ -14088,7 +14165,7 @@ function LifestyleVsLegacy({ projections, personalInfo, accounts, incomeStreams,
             <tr className="border-b border-slate-700">
               <th className="text-left py-2 px-2 text-slate-400">Scenario</th>
               <th className="text-right py-2 px-2 text-slate-400">Annual Spend</th>
-              <th className="text-right py-2 px-2 text-slate-400">Legacy at {personalInfo.legacyAge || 95}</th>
+              <th className="text-right py-2 px-2 text-slate-400">Legacy at {legacyAgeShown}</th>
               <th className="text-center py-2 px-2 text-slate-400">Status</th>
             </tr>
           </thead>
@@ -14106,6 +14183,7 @@ function LifestyleVsLegacy({ projections, personalInfo, accounts, incomeStreams,
           </tbody>
         </table>
       </div>
+      </>)}
     </div>
   );
 }
@@ -16823,7 +16901,11 @@ function SafeSpendingPanel({ ctx, badge, onHide }) {
         
         // Inflate desired income to retirement-year dollars to match the nominal portfolio value
         const yearsToRetirement = Math.max(0, retirementAge - personalInfo.myAge);
-        const currentDesired = personalInfo.desiredRetirementIncome * Math.pow(1 + personalInfo.inflationRate, yearsToRetirement);
+        // Under a withdrawal-led strategy the target is unused; the plan's own
+        // first-year spending (already in retirement-year dollars) stands in.
+        const currentDesired = strategyLeadsSpending(personalInfo)
+          ? (retirementProjection?.desiredIncome || 0)
+          : personalInfo.desiredRetirementIncome * Math.pow(1 + personalInfo.inflationRate, yearsToRetirement);
         
         // Calculate sustainable income at different withdrawal rates
         const safeIncome3 = Math.round(retirementPortfolio * 0.03);
@@ -17248,6 +17330,10 @@ function YearTimelinePanel({ ctx, badge, onHide }) {
     if (!n || !ctx.focus) return;
     ctx.focus.set(rows[Math.max(0, Math.min(n - 1, k))].myAge);
   };
+  // The play timer reads the latest pick, so a plan edited mid-play steps
+  // through the new years rather than the ones it started with.
+  const pickRef = useRef(pick);
+  pickRef.current = pick;
 
   // Play: one year every 190 ms, stopping at the end. Pressing play at the end
   // starts again from the first year; any other interaction stops it.
@@ -17256,7 +17342,7 @@ function YearTimelinePanel({ ctx, badge, onHide }) {
     if (!playing) return undefined;
     const t = setInterval(() => {
       if (selRef.current >= n - 1) { setPlaying(false); return; }
-      pick(selRef.current + 1);
+      pickRef.current(selRef.current + 1);
     }, 190);
     return () => clearInterval(t);
   }, [playing, n]);
@@ -19289,7 +19375,9 @@ function PlanSummaryReport({ projections, personalInfo, accounts, incomeStreams,
           <div style={statBox}><p style={statLabel}>My Age / Retire At</p><p style={statValue}>{pi.myAge} / {pi.myRetirementAge}</p></div>
           {isMarried && <div style={statBox}><p style={statLabel}>Spouse Age / Retire At</p><p style={statValue}>{pi.spouseAge} / {pi.spouseRetirementAge}</p></div>}
           <div style={statBox}><p style={statLabel}>Filing / State</p><p style={{ ...statValue, fontSize: 14 }}>{(pi.filingStatus || '').replace(/_/g, ' ')} · {pi.state}</p></div>
-          <div style={statBox}><p style={statLabel}>Desired Spending</p><p style={statValue}>{fmt(pi.desiredRetirementIncome)}/yr</p></div>
+          {strategyLeadsSpending(pi)
+            ? <div style={statBox}><p style={statLabel}>Withdrawal Strategy</p><p style={{ ...statValue, fontSize: 12 }}>{strategyLabelOf(pi)}</p></div>
+            : <div style={statBox}><p style={statLabel}>{PlannerEngine.withdrawalStrategyOf(pi) === 'guardrails' ? 'Spending (with guardrails)' : 'Desired Spending'}</p><p style={statValue}>{fmt(pi.desiredRetirementIncome)}/yr</p></div>}
           <div style={statBox}><p style={statLabel}>Inflation Assumption</p><p style={statValue}>{((pi.inflationRate || 0) * 100).toFixed(1)}%</p></div>
           <div style={statBox}><p style={statLabel}>Planning Horizon</p><p style={statValue}>Age {pi.legacyAge || 95}</p></div>
           <div style={statBox}><p style={statLabel}>Withdrawal Order</p><p style={{ ...statValue, fontSize: 12 }}>{priority}</p></div>
@@ -20829,7 +20917,7 @@ function ScenarioComparisonReport({ computeProjections, projections, personalInf
                       <tr key={'w' + i} style={r.isBase ? { background: '#fef3c7' } : null}>
                         <td style={tdL}>{r.label}</td>
                         <td style={{ ...td, textAlign: 'left', fontWeight: 400 }}>age {p.myRetirementAge}</td>
-                        <td style={{ ...td, textAlign: 'left', fontWeight: 400 }}>{fmt(p.desiredIncome ?? p.desiredRetirementIncome)}/yr</td>
+                        <td style={{ ...td, textAlign: 'left', fontWeight: 400 }}>{strategyLeadsSpending(p) ? strategyLabelOf(p) : `${fmt(p.desiredIncome ?? p.desiredRetirementIncome)}/yr`}</td>
                         <td style={{ ...td, textAlign: 'left', fontWeight: 400 }}>
                           {myClaim || '—'}{pi.filingStatus === 'married_joint' ? ` / ${spClaim || '—'}` : ''}
                         </td>
@@ -21164,7 +21252,9 @@ function BreakingPointReport({ projections, personalInfo, accounts, incomeStream
                   events: oneTimeEvents, recurring: recurringExpenses,
                   currentYear: new Date().getFullYear() };
     return {
-      spending: breakingPoint(ctx, 'spending'),
+      // No spending edge under a withdrawal-led strategy: the target it would
+      // vary does nothing, so every value "survives".
+      spending: strategyLeadsSpending(pi) ? null : breakingPoint(ctx, 'spending'),
       inflation: breakingPoint(ctx, 'inflation'),
       returnDrop: breakingPoint(ctx, 'returnDrop'),
     };
@@ -21247,7 +21337,7 @@ function BreakingPointReport({ projections, personalInfo, accounts, incomeStream
       slack: e => e.value / Math.max(0.005, baseCagr),
       meaning: 'How much can come off every account’s growth rate at once. Not a bad year — a permanently lower return for the whole plan.',
     },
-  ];
+  ].filter(r => r.key !== 'spending' || !strategyLeadsSpending(pi));
   const measurable = edgeRows.filter(r => r.edge && !r.edge.alreadyFails && !r.edge.survivesRange && r.edge.value != null);
   const tightest = measurable.reduce((a, b) => (!a || b.slack(b.edge) < a.slack(a.edge) ? b : a), null);
 
@@ -21353,8 +21443,11 @@ function BreakingPointReport({ projections, personalInfo, accounts, incomeStream
           {ledger && ledger.fails
             ? ' This plan is already short, so there is no cushion to measure and the rows above show a dash.'
             : tightest
-              ? ` The tightest of the three is ${tightest.label.toLowerCase()}: proportionally, that is where this plan runs out of room first.`
+              ? ` The tightest of the ${edgeRows.length === 3 ? 'three' : 'two'} is ${tightest.label.toLowerCase()}: proportionally, that is where this plan runs out of room first.`
               : ''}
+          {strategyLeadsSpending(pi)
+            ? ` Spending has no row: your withdrawal strategy (${strategyLabelOf(pi)}) sets it from the portfolio each year, so there is no target to push.`
+            : ''}
         </p>
 
         <h2 style={h2}>The Order of Depletion</h2>
@@ -21525,6 +21618,20 @@ const WITHDRAWAL_STRATEGY_CHOICES = [
   { id: 'vpw', label: 'Variable percentage withdrawal (VPW)',
     what: 'The payment that spends the portfolio evenly to age 100, recomputed on each year’s balance (Bogleheads).' },
 ];
+
+// The five withdrawal-led strategies set spending themselves, and the plan's
+// spending target sits unused while one is on. Screens that show or vary that
+// target ask this, and say so rather than show a figure that does nothing.
+const strategyLeadsSpending = (pi) => PlannerEngine.WITHDRAWAL_LED.has(PlannerEngine.withdrawalStrategyOf(pi || {}));
+const strategyLabelOf = (pi) =>
+  (WITHDRAWAL_STRATEGY_CHOICES.find(c => c.id === PlannerEngine.withdrawalStrategyOf(pi || {})) || {}).label || '';
+const StrategySetsSpendingNote = ({ pi, children }) => strategyLeadsSpending(pi) ? (
+  <div className="mb-4 p-3 bg-slate-800/40 border border-slate-700/50 rounded-lg text-sm text-slate-300">
+    Your withdrawal strategy, <strong>{strategyLabelOf(pi)}</strong>, sets your spending each year, so there is no
+    spending target to vary. {children}
+    <span className="block text-xs text-slate-500 mt-1">Change it on About you → Withdrawal strategy.</span>
+  </div>
+) : null;
 
 // Three stripes of a theme's own colours: its ground, its card and its accent.
 // Painted with inline hex rather than classes, because the point is to show a
