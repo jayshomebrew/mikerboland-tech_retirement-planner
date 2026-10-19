@@ -73,10 +73,12 @@ The browser smoke test loads the built pages in headless Chromium on the app's o
 npm install          # once — installs Tailwind 3.4.17, used only by the build
 node tools/build.cjs
 ```
-There is still no bundler. The build precompiles `retirement-planner.jsx` and
+There is still no bundler. The desktop app's source is the parts in
+`src/desktop/` (`01-foundation.jsx` … `18-app.jsx`), which share one scope and are
+joined in name order. The build precompiles that joined source and
 `retirement-planner-mobile.jsx` to `.compiled.js` files, builds `app.css` from the
 classes they use, and stamps each page with the hash of the source it was built
-from. On the live site the pages trust that stamp and load only the compiled app
+from. `tools/sources.cjs` is the one place that says what the parts are. On the live site the pages trust that stamp and load only the compiled app
 and the stylesheet — about 2.6 MB for the desktop and 1 MB for the phone, where
 it was about 7.7 MB and 4.4 MB when both compiled in the browser.
 

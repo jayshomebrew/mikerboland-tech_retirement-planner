@@ -7,6 +7,9 @@
 
 // Shared engine — same module the desktop + mobile JSX files load via <script src>.
 const engine = require('../engine.js');
+// The desktop app's source: the parts in src/desktop/, joined exactly as the
+// build joins them (tools/sources.cjs). Every test that reads the app reads this.
+const DESKTOP_SRC = require('../tools/sources.cjs').readDesktopSource(require('path').resolve(__dirname, '..'));
 console.log('Engine under test: ../engine.js (shared)');
 const { computeProjections, calculateFederalTax, calculateStateTax, calculateSocialSecurityTaxableAmount,
         calculateCapitalGainsTax, calculateNIIT, calculateRMD, calculateIRMAA,
@@ -7092,7 +7095,7 @@ section('P59 — the starter plan: internally consistent, and not balanced on a 
   // benefit in the claim year. These read the ACTUAL defaults out of the source
   // so the starter plan cannot drift again without a test failing.
   const fs = require('fs');
-  const src = fs.readFileSync(__dirname + '/../retirement-planner.jsx', 'utf8');
+  const src = DESKTOP_SRC;
   const grab = (name) => {
     const start = src.indexOf(`const ${name} = [`);
     if (start < 0) return null;
@@ -9334,7 +9337,7 @@ section('P78 — the section manifest and the JSX cannot drift apart');
   // source.
   const fs3 = require('fs');
   const path3 = require('path');
-  const src = fs3.readFileSync(path3.resolve(__dirname, '..', 'retirement-planner.jsx'), 'utf8');
+  const src = DESKTOP_SRC;
 
   // Pull the manifest out of the module by evaluating just its literal. It is
   // plain data, so this is safe and avoids duplicating it here — a copy in the
@@ -10316,7 +10319,7 @@ section('P87 — the Tax Planning tab can hide its own sections');
   // IRMAA card's own Hide button hid the summary.
   const fs4 = require('fs');
   const path4 = require('path');
-  const src = fs4.readFileSync(path4.resolve(__dirname, '..', 'retirement-planner.jsx'), 'utf8');
+  const src = DESKTOP_SRC;
 
   const mStart = src.indexOf('const SECTION_MANIFEST = {');
   const mEnd = src.indexOf('\n};', mStart);
@@ -10984,7 +10987,7 @@ section('P92 — a colour pinned at module scope never changes mode again');
   // — and then pinned the result of reading the palette.
   const fs5 = require('fs');
   const path5 = require('path');
-  const src = fs5.readFileSync(path5.resolve(__dirname, '..', 'retirement-planner.jsx'), 'utf8');
+  const src = DESKTOP_SRC;
 
   // A module-scope `const X = THEME.…` / `= SERIES.…` that is not a function.
   // Capturing the top-level objects themselves is fine and intended — they are
@@ -11519,7 +11522,7 @@ section('P94 — no component is defined inside another component');
   // Reading the diff will not catch the fifth. This will.
   const fs5 = require('fs');
   const path5 = require('path');
-  const src = fs5.readFileSync(path5.resolve(__dirname, '..', 'retirement-planner.jsx'), 'utf8');
+  const src = DESKTOP_SRC;
 
   // An indented `const Name = (` is a definition inside some enclosing function.
   // Capitalised AND rendered as <Name means React treats it as a component type,
@@ -11687,7 +11690,7 @@ section('P96 — the tables read the palette, not a hand-picked hue');
   // Tailwind colour, which would also ignore light mode.
   const fs6 = require('fs');
   const path6 = require('path');
-  const src = fs6.readFileSync(path6.resolve(__dirname, '..', 'retirement-planner.jsx'), 'utf8');
+  const src = DESKTOP_SRC;
 
   const ENTITY = {
     'roth': 'roth', 'pre-tax': 'preTax', 'brokerage': 'brokerage',
@@ -11851,7 +11854,7 @@ section('P98 — no surface shows money in a basis it never declared');
   // when forgetting one fails the build.
   const fs7 = require('fs');
   const path7 = require('path');
-  const src = fs7.readFileSync(path7.resolve(__dirname, '..', 'retirement-planner.jsx'), 'utf8');
+  const src = DESKTOP_SRC;
 
   // ── 1. Nobody but the shell may call the raw engine ──────────────────────
   // Everyone else takes it as a prop, which is what lets one wrapper put the
@@ -12004,7 +12007,7 @@ section('P99 — survivor modelling on by default, and honest about what that mo
 {
   const fs9 = require('fs');
   const path9 = require('path');
-  const src = fs9.readFileSync(path9.resolve(__dirname, '..', 'retirement-planner.jsx'), 'utf8');
+  const src = DESKTOP_SRC;
 
   // ── the default ──────────────────────────────────────────────────────────
   // Asserted on the exported object rather than by reading the app's source:
@@ -12143,7 +12146,7 @@ section('P100 — a plan you can get back');
   // worse than useless: it looks like protection and is not.
   const fs10 = require('fs');
   const path10 = require('path');
-  const src = fs10.readFileSync(path10.resolve(__dirname, '..', 'retirement-planner.jsx'), 'utf8');
+  const src = DESKTOP_SRC;
 
   // Lift the two pure functions out of the .jsx and run them against a fake
   // localStorage. They are plain data handling; the alternative is a second copy
@@ -12252,7 +12255,7 @@ section('P101 — the Sandbox is a primary surface, and charts can be stretched'
 {
   const fs11 = require('fs');
   const path11 = require('path');
-  const src = fs11.readFileSync(path11.resolve(__dirname, '..', 'retirement-planner.jsx'), 'utf8');
+  const src = DESKTOP_SRC;
 
   // ── the Sandbox sits under the Dashboard, not seven groups down ──────────
   // Renamed when simple mode arrived: the full app's four groups are
@@ -12332,7 +12335,7 @@ section('P102 — the Scenarios tab lives inside the Sandbox');
 {
   const fs12 = require('fs');
   const path12 = require('path');
-  const src = fs12.readFileSync(path12.resolve(__dirname, '..', 'retirement-planner.jsx'), 'utf8');
+  const src = DESKTOP_SRC;
 
   // The tab is gone and the comparison survived as a panel.
   eq((src.match(/function ScenarioComparisonTab\(/g) || []).length, 0,
@@ -12399,7 +12402,7 @@ section('P103 — no control that does nothing');
   // has turned out not to.
   const fs13 = require('fs');
   const path13 = require('path');
-  const src = fs13.readFileSync(path13.resolve(__dirname, '..', 'retirement-planner.jsx'), 'utf8');
+  const src = DESKTOP_SRC;
 
   // The comment explaining it left with the old DashboardTab in v2.47.0.
   eq((src.match(/showDashboardSettings/g) || []).length, 0,
@@ -12435,7 +12438,7 @@ section('P104 — every tab that has sections can put them away');
   // their own account list every time they want to change a balance.
   const fs14 = require('fs');
   const path14 = require('path');
-  const src = fs14.readFileSync(path14.resolve(__dirname, '..', 'retirement-planner.jsx'), 'utf8');
+  const src = DESKTOP_SRC;
   const mStart = src.indexOf('const SECTION_MANIFEST = {');
   const manifest = eval('(' + src.slice(mStart + 'const SECTION_MANIFEST = '.length,
                                         src.indexOf('\n};', mStart) + 2) + ')');
@@ -12527,7 +12530,7 @@ section('P105 — one palette for the three tax treatments, not four');
   // charts read three of the four backwards.
   const fs15 = require('fs');
   const path15 = require('path');
-  const src = fs15.readFileSync(path15.resolve(__dirname, '..', 'retirement-planner.jsx'), 'utf8');
+  const src = DESKTOP_SRC;
 
   ok(src.indexOf('const treatmentInk = (kind) =>') > 0,
     'the three treatments have one colour source');
@@ -12683,7 +12686,7 @@ section('P106 — the claiming decision, and the two answers that disagree');
   // ── the report itself ────────────────────────────────────────────────────
   const fs16 = require('fs');
   const path16 = require('path');
-  const src = fs16.readFileSync(path16.resolve(__dirname, '..', 'retirement-planner.jsx'), 'utf8');
+  const src = DESKTOP_SRC;
   eq((src.match(/function ClaimingDecisionReport\(/g) || []).length, 1, 'the report exists');
   ok(src.indexOf("onPick('claiming')") > 0, 'and is reachable from the report menu');
   ok(src.indexOf('<ReportBasisLine pi={pi} follows={false} />') > 0,
@@ -12705,7 +12708,7 @@ section('P107 — the review release: RMD timing, boundary coercion, solver visi
   const fs17 = require('fs');
   const path17 = require('path');
   const engSrc = fs17.readFileSync(path17.resolve(__dirname, '..', 'engine.js'), 'utf8');
-  const uiSrc  = fs17.readFileSync(path17.resolve(__dirname, '..', 'retirement-planner.jsx'), 'utf8');
+  const uiSrc  = DESKTOP_SRC;
 
   // ── 1. RMD on the PRIOR year-end balance ────────────────────────────────
   // IRC §401(a)(9): the divisor applies to the balance on the prior December
@@ -13508,7 +13511,7 @@ section('P113 — the Content-Security-Policy: current, strict, and complete');
       `${file} no longer evaluates code through eval or new Function`);
   }
   // The assistant's URL in the app is the host the policy names.
-  const jsx = fs.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
   const url = /const AI_API_URL = ['"]([^'"]+)['"]/.exec(jsx);
   ok(url && url[1].startsWith('https://api.anthropic.com/'), 'the assistant talks to api.anthropic.com, which connect-src allows');
   // Nothing else in the app fetches a remote host.
@@ -13559,7 +13562,7 @@ section('P115 — every report component declares the plan it reads');
   // the shape instead: any top-level component whose body uses a bare `pi`
   // must declare it — as a parameter or a const — before the body ends.
   const fs = require('fs'), pathMod = require('path');
-  const src = fs.readFileSync(pathMod.join(pathMod.resolve(__dirname, '..'), 'retirement-planner.jsx'), 'utf8');
+  const src = DESKTOP_SRC;
   const lines = src.split('\n');
   const starts = [];
   lines.forEach((l, i) => { const m = /^function ([A-Za-z0-9_]+)\s*\(([^)]*)\)/.exec(l); if (m) starts.push({ name: m[1], params: m[2], at: i }); });
@@ -13989,7 +13992,7 @@ section('P118 — the Sandbox strategy levers');
     // "Runs out [object Object]" — in the one place a reader looks to find out
     // whether the plan survives.
     const fsMod = require('fs'), pathMod = require('path');
-    const src = fsMod.readFileSync(pathMod.join(pathMod.resolve(__dirname, '..'), 'retirement-planner.jsx'), 'utf8');
+    const src = DESKTOP_SRC;
     const flat = src.replace(/\s+/g, ' ');
     ok(!/depletedYear \|\| ''/.test(flat),
       "no reader falls back to '' on the depletion row — that is what printed [object Object]");
@@ -14029,7 +14032,7 @@ section('P119 — the Sandbox strategy drawer hides controls without hiding thei
   // summary, and it goes on quietly moving the answer from behind a closed
   // drawer.
   const fsMod = require('fs'), pathMod = require('path');
-  const src = fsMod.readFileSync(pathMod.join(pathMod.resolve(__dirname, '..'), 'retirement-planner.jsx'), 'utf8');
+  const src = DESKTOP_SRC;
 
   const summaryBlock = /const strategySummary = \[([\s\S]*?)\]\.filter\(Boolean\);/.exec(src);
   ok(summaryBlock, 'the collapsed summary is built in one place');
@@ -14153,7 +14156,7 @@ section('P120 — a staged schedule outranks every scalar mode, and every caller
   {
     const fsMod = require('fs'), pathMod = require('path');
     const ROOT = pathMod.resolve(__dirname, '..');
-    const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+    const jsx = DESKTOP_SRC;
     const wrk = fsMod.readFileSync(pathMod.join(ROOT, 'worker.js'), 'utf8');
     // Since v2.48.0 the strategy editor's draft IS plan fields, so there is no
     // settings-to-plan translation left to go wrong. What has to hold instead:
@@ -14201,7 +14204,7 @@ section('P120 — a staged schedule outranks every scalar mode, and every caller
     approx(tile.afterTax - score.afterTaxLegacy, tile.nonPortfolio,
       'the optimizer and the Dashboard tile differ by exactly the non-portfolio estate', 1.5);
     const fsMod = require('fs'), pathMod = require('path');
-    const jsx = fsMod.readFileSync(pathMod.join(pathMod.resolve(__dirname, '..'), 'retirement-planner.jsx'), 'utf8');
+    const jsx = DESKTOP_SRC;
     ok(/After-Tax Legacy — portfolio/.test(jsx), 'the optimizer column says it is portfolio only');
     ok(/the Roth optimizer ranks on the portfolio alone/.test(jsx),
       'and the Dashboard tile names the assets it adds on top');
@@ -14249,7 +14252,7 @@ section('P121 — the user sweep: six things that were wrong, incomplete or miss
   {
     const fsMod = require('fs'), pathMod = require('path');
     const ROOT = pathMod.resolve(__dirname, '..');
-    const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+    const jsx = DESKTOP_SRC;
     const mob = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner-mobile.jsx'), 'utf8');
     const flat = jsx.replace(/\s+/g, ' ');
 
@@ -14392,7 +14395,7 @@ section('P123 — long-term care is billed whatever the healthcare model says, a
   // The warning that makes it visible.
   {
     const fsMod = require('fs'), pathMod = require('path');
-    const jsx = fsMod.readFileSync(pathMod.join(pathMod.resolve(__dirname, '..'), 'retirement-planner.jsx'), 'utf8');
+    const jsx = DESKTOP_SRC;
     ok(/ltc_on_with_unpriced_healthcare/.test(jsx), 'a warning exists for care billed beside self-handled healthcare');
     ok(/!healthcareCostsModeled\(info\)/.test(jsx), 'and fires only for the healthcare models that price nothing');
     ok(/set Long-Term Care to None on this tab/.test(jsx), 'telling the reader how to switch it off');
@@ -14429,7 +14432,7 @@ section('P124 — the phone reads the plan the desktop saved, and gets the same 
 
   // ── it agrees with the app's migrations on everything that moves a number ──
   {
-    const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+    const jsx = DESKTOP_SRC;
     const declared = /const SCHEMA_VERSION = (\d+);/.exec(jsx);
     ok(declared, 'the app declares a schema version');
     eq(Number(declared[1]), PLAN_SCHEMA_VERSION,
@@ -14537,7 +14540,7 @@ section('P125 — every scenario on the comparison chart is a different line');
   const fsMod = require('fs'), pathMod = require('path');
   const theme = require('../theme.js');
   const ROOT = pathMod.resolve(__dirname, '..');
-  const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
   const panel = jsx.slice(jsx.indexOf('function ScenarioComparisonPanel'),
                           jsx.indexOf('// StressTestTab — Lifted to module scope'));
   ok(panel.length > 1000, 'the comparison panel was located in the source');
@@ -14669,7 +14672,7 @@ section('P126 — the scenarios report prints, and prints the same lines the scr
 {
   const fsMod = require('fs'), pathMod = require('path');
   const ROOT = pathMod.resolve(__dirname, '..');
-  const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
 
   // ── every report is portalled out of #root ───────────────────────────────
   {
@@ -14765,7 +14768,7 @@ section('P127 — simple mode hides screens, never settings');
 {
   const fsMod = require('fs'), pathMod = require('path');
   const ROOT = pathMod.resolve(__dirname, '..');
-  const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
 
   // ── it is presentational, and that is the whole safety argument ──────────
   {
@@ -14910,7 +14913,7 @@ section('P128 — the review of v2.41: every Hide button has a way back, or is n
 
 {
   const fsMod = require('fs'), pathMod = require('path');
-  const jsx = fsMod.readFileSync(pathMod.join(pathMod.resolve(__dirname, '..'), 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
 
   // ── #1: the Dashboard's hand-wired panels ────────────────────────────────
   {
@@ -15082,7 +15085,7 @@ section('P130 — the rest of the review: the tour, hidden settings, the mode on
 {
   const fsMod = require('fs'), pathMod = require('path');
   const ROOT = pathMod.resolve(__dirname, '..');
-  const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
   const { activeAdvancedSettings, rothConversionModeLabel, DEFAULT_PLAN_INFO } = engine;
   const single = { ...DEFAULT_PLAN_INFO, filingStatus: 'single' };
 
@@ -15359,7 +15362,7 @@ section('P132 — Sandbox: income streams you do not control, switched off, scal
   // ── the Sandbox wiring ───────────────────────────────────────────────────
   {
     const fsMod = require('fs'), pathMod = require('path');
-    const jsx = fsMod.readFileSync(pathMod.join(pathMod.resolve(__dirname, '..'), 'retirement-planner.jsx'), 'utf8');
+    const jsx = DESKTOP_SRC;
     ok(/\|\| streamAdjCount > 0;/.test(jsx), 'a stream lever makes the Sandbox a what-if');
     ok(/streamAdjustments: streamAdjCount \? streamAdj : undefined,/.test(jsx), 'and reaches the engine');
     ok(/ltcChoice, streamAdj, streamAdjCount,/.test(jsx), 'and re-runs the what-if when it changes');
@@ -15379,7 +15382,7 @@ section('P133 — the Withdrawals tab is retired: no screen runs a model of its 
 
 {
   const fsMod = require('fs'), pathMod = require('path');
-  const jsx = fsMod.readFileSync(pathMod.join(pathMod.resolve(__dirname, '..'), 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
   // It compared spending rules with a private simulation that modelled no tax,
   // so its rankings described a plan more generous than the reader's and could
   // disagree with every other tab. Gone, and nothing left pointing at it.
@@ -15405,7 +15408,7 @@ section('P134 — the Dashboard and the Sandbox are one page');
 
 {
   const fsMod = require('fs'), pathMod = require('path');
-  const jsx = fsMod.readFileSync(pathMod.join(pathMod.resolve(__dirname, '..'), 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
 
   // ── one page, one route, one component ───────────────────────────────────
   // The Sandbox already drew every Dashboard panel from the same engine with
@@ -15558,7 +15561,7 @@ section('P135 — one place to set the Roth conversion strategy');
 {
   const fsMod = require('fs'), pathMod = require('path');
   const ROOT = pathMod.resolve(__dirname, '..');
-  const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
   const eng = fsMod.readFileSync(pathMod.join(ROOT, 'engine.js'), 'utf8');
   const body = (name) => { const a = jsx.indexOf('function ' + name + '('); return jsx.slice(a, jsx.indexOf('\n}\n', a)); };
 
@@ -15632,7 +15635,7 @@ section('P136 — "Will it last?" is one tab asking one question three ways');
 
 {
   const fsMod = require('fs'), pathMod = require('path');
-  const jsx = fsMod.readFileSync(pathMod.join(pathMod.resolve(__dirname, '..'), 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
   const navAt = jsx.indexOf('const fullNavGroups = [');
   const nav = jsx.slice(navAt, jsx.indexOf('\n  ];', navAt));
   ok(/\{ id: 'montecarlo', label: 'Will it last\?',/.test(nav), 'the nav has one "Will it last?" entry');
@@ -15672,7 +15675,7 @@ section('P137 — the detail-level strip is gone, and nobody’s page changes');
 
 {
   const fsMod = require('fs'), pathMod = require('path');
-  const jsx = fsMod.readFileSync(pathMod.join(pathMod.resolve(__dirname, '..'), 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
 
   // ── the strip ────────────────────────────────────────────────────────────
   // Essentials/Standard/Everything sat on every tab and duplicated the mode
@@ -15731,7 +15734,7 @@ section('P138 — the small overlaps: one basis switch, labelled sources, and a 
 
 {
   const fsMod = require('fs'), pathMod = require('path');
-  const jsx = fsMod.readFileSync(pathMod.join(pathMod.resolve(__dirname, '..'), 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
 
   // ── one basis switch, on every page ──────────────────────────────────────
   eq((jsx.match(/<BasisToggle /g) || []).length, 1, 'the Future $ / Today’s $ switch is rendered once');
@@ -15769,7 +15772,7 @@ section('P139 — Personal Info keeps what you type, and the FAQ describes the e
 
 {
   const fsMod = require('fs'), pathMod = require('path');
-  const jsx = fsMod.readFileSync(pathMod.join(pathMod.resolve(__dirname, '..'), 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
   const piAt = jsx.indexOf('function PersonalInfoTab(');
   const pi = jsx.slice(piAt, jsx.indexOf('\nfunction ', piAt + 10));
 
@@ -15816,7 +15819,8 @@ section('P140 — the pages load the build, not the compilers');
   const fnv = (str) => { let h = 0x811c9dc5; for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i);
     h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0; } return h.toString(16); };
   const build = read('tools/build.cjs');
-  const cssInputs = eval((/const CSS_INPUTS = (\[[\s\S]*?\]);/.exec(build) || [])[1] || '[]');
+  const cssInputs = require('../tools/sources.cjs').cssInputs(ROOT);
+  ok(/const CSS_INPUTS = sources\.cssInputs\(ROOT\);/.test(build), 'the build hashes the same inputs');
   gt(cssInputs.length, 2, 'the stylesheet’s inputs are declared');
   const cssHash = fnv(cssInputs.map(read).join('\u0000'));
 
@@ -15835,8 +15839,8 @@ section('P140 — the pages load the build, not the compilers');
     ok(/await loadScript\('vendor\/babel\.min\.js'\)/.test(html), `${page} can still fetch the compiler when it has to`);
     // ── the stamp matches the source, so the live site may trust it ───────
     const stamp = JSON.parse((/window\.PLANNER_BUILD = (\{[^}]*\});/.exec(html) || [])[1] || '{}');
-    const srcHash = fnv(read(src));
-    eq(stamp.src, srcHash, `${page}'s build stamp matches ${src} — run tools/build.cjs if this fails`);
+    const srcHash = fnv(page === 'index.html' ? DESKTOP_SRC : read(src));
+    eq(stamp.src, srcHash, `${page}'s build stamp matches its source — run tools/build.cjs if this fails`);
     eq(stamp.css, cssHash, `and names the current stylesheet`);
     ok(html.includes(`<link rel="stylesheet" href="app.css?h=${cssHash}">`), `${page} links the stylesheet by its hash, so a new build is never served from cache`);
     const compiled = read(src.replace(/\.jsx$/, '.compiled.js'));
@@ -15855,7 +15859,7 @@ section('P140 — the pages load the build, not the compilers');
   // order, not by the order they are written — and that order differed between
   // the in-browser compiler and the build. Found by comparing every class list
   // the app renders under both: an appended "w-24" lost to the shared w-full.
-  const jsx = read('retirement-planner.jsx');
+  const jsx = DESKTOP_SRC;
   const constClasses = {};
   ['inputStyle', 'compactInputStyle', 'cardStyle', 'labelStyle', 'compactLabelStyle', 'buttonPrimary', 'buttonSecondary'].forEach(n => {
     const m = new RegExp('const ' + n + ' = "([^"]+)"').exec(jsx);
@@ -15904,7 +15908,7 @@ section('P141 — the Dashboard says whether the plan is on track, and what to d
 {
   const fsMod = require('fs'), pathMod = require('path'), vmMod = require('vm');
   const ROOT = pathMod.resolve(__dirname, '..');
-  const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
 
   // ── the engine's searches ────────────────────────────────────────────────
   const b = baseScenario({ filingStatus: 'single' });
@@ -16034,7 +16038,7 @@ section('P143 — four dark looks, chosen per browser');
   const fsMod = require('fs'), pathMod = require('path');
   const ROOT = pathMod.resolve(__dirname, '..');
   const theme = require('../theme.js');
-  const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
   const mob = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner-mobile.jsx'), 'utf8');
   const css = fsMod.readFileSync(pathMod.join(ROOT, 'tools', 'looks.css'), 'utf8');
   const pages = ['index.html', 'mobile.html'].map(f => [f, fsMod.readFileSync(pathMod.join(ROOT, f), 'utf8')]);
@@ -16132,8 +16136,7 @@ section('P143 — four dark looks, chosen per browser');
   const blurs = [...css.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{[^}]*?backdrop-filter:\s*([^;]+);/g)].map(m => [m[1].trim(), m[2].trim()]);
   eq(blurs.filter(([, v]) => v !== 'none').map(([sel]) => sel).join(' | '), ':root[data-look="aurora"] aside', 'the only backdrop blur a look adds is the Aurora sidebar');
   ok(blurs.some(([sel, v]) => v === 'none' && /aurora/.test(sel) && /observatory/.test(sel)), 'and card blur is off under both moving backgrounds');
-  const build = fsMod.readFileSync(pathMod.join(ROOT, 'tools', 'build.cjs'), 'utf8');
-  ok(/'tools\/looks\.css'\]/.test(build), 'looks.css is a stylesheet input, so editing it changes the stamp');
+  ok(require('../tools/sources.cjs').cssInputs(ROOT).includes('tools/looks.css'), 'looks.css is a stylesheet input, so editing it changes the stamp');
   ok(/^@import "\.\/looks\.css";/.test(fsMod.readFileSync(pathMod.join(ROOT, 'tools', 'tailwind.input.css'), 'utf8')), 'and is built into app.css');
   ok(fsMod.readFileSync(pathMod.join(ROOT, 'app.css'), 'utf8').includes('look-engrave'), 'app.css carries it');
   ok(/font-src 'self' data:/.test(pages[0][1]), 'fonts are still self-hosted only — no third-party font host in the policy');
@@ -16159,7 +16162,7 @@ section('P144 — the plan as a timeline you can play');
   const fsMod = require('fs'), pathMod = require('path');
   const ROOT = pathMod.resolve(__dirname, '..');
   const theme = require('../theme.js');
-  const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
   const grab = (start, end) => { const a = jsx.indexOf(start); return jsx.slice(a, jsx.indexOf(end, a) + end.length); };
   const timelineMilestones = eval(grab('const timelineMilestones = ', '\n};') + '\ntimelineMilestones');
   const placeTimelineLabels = eval(grab('const placeTimelineLabels = ', '\n};') + '\nplaceTimelineLabels');
@@ -16277,7 +16280,7 @@ section('P145 — a hidden panel always has a visible way back');
 
 {
   const fsMod = require('fs'), pathMod = require('path');
-  const jsx = fsMod.readFileSync(pathMod.join(pathMod.resolve(__dirname, '..'), 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
   const dash = jsx.slice(jsx.indexOf('function DashboardTab('), jsx.indexOf('// ── EVERY DASHBOARD PANEL, AS A COMPONENT'));
   // Every Hide on the Dashboard goes through hidePanel, which leaves a note.
   eq((dash.match(/onHide=\{\(\) => togglePanel\(/g) || []).length, 0, 'no panel header hides through the bare toggle');
@@ -16305,7 +16308,7 @@ section('P146 — the what-if edits accounts, for building a bridge');
 
 {
   const fsMod = require('fs'), pathMod = require('path');
-  const jsx = fsMod.readFileSync(pathMod.join(pathMod.resolve(__dirname, '..'), 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
   const { sandboxScenario } = engine;
   const pi = { ...engine.DEFAULT_PLAN_INFO, myAge: 45, myRetirementAge: 52, filingStatus: 'single',
     desiredRetirementIncome: 70000, legacyAge: 90, state: 'Texas' };
@@ -16374,7 +16377,7 @@ section('P147 — Guyton-Klinger guardrails, as the research states them');
 {
   const fsMod = require('fs'), pathMod = require('path'), vmMod = require('vm');
   const ROOT = pathMod.resolve(__dirname, '..');
-  const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
   const worker = fsMod.readFileSync(pathMod.join(ROOT, 'worker.js'), 'utf8');
   const { resolveSpendingRule, guardrailRuleOfPlan, guardrailTargetRates, spendingWithdrawalOf, GUARDRAIL_DEFAULTS } = engine;
 
@@ -16535,7 +16538,7 @@ section('P148 — five withdrawal-led strategies, in the engine, with tax');
 {
   const fsMod = require('fs'), pathMod = require('path'), vmMod = require('vm');
   const ROOT = pathMod.resolve(__dirname, '..');
-  const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
   const { withdrawalStrategyOf, WITHDRAWAL_STRATEGIES, WITHDRAWAL_LED, rmdStrategyDivisor, vpwRate, spendingWithdrawalOf } = engine;
 
   eq(WITHDRAWAL_STRATEGIES.join(','), 'target,guardrails,constant,percent,rmd,vanguard,vpw', 'seven strategies');
@@ -16691,7 +16694,7 @@ section('P149 — comparing every withdrawal strategy on the same markets');
 {
   const fsMod = require('fs'), pathMod = require('path'), vmMod = require('vm');
   const ROOT = pathMod.resolve(__dirname, '..');
-  const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
   const html = fsMod.readFileSync(pathMod.join(ROOT, 'index.html'), 'utf8');
   const workerSrc = fsMod.readFileSync(pathMod.join(ROOT, 'worker.js'), 'utf8');
   const runJob = (type, payload) => {
@@ -16782,7 +16785,7 @@ section('P151 — screens that show the spending target say when a strategy sets
 {
   const fsMod = require('fs'), pathMod = require('path'), vmMod = require('vm');
   const ROOT = pathMod.resolve(__dirname, '..');
-  const jsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner.jsx'), 'utf8');
+  const jsx = DESKTOP_SRC;
   const mobileJsx = fsMod.readFileSync(pathMod.join(ROOT, 'retirement-planner-mobile.jsx'), 'utf8');
   const workerSrc = fsMod.readFileSync(pathMod.join(ROOT, 'worker.js'), 'utf8');
 
@@ -16914,6 +16917,36 @@ section('P153 — the phone runs every withdrawal strategy');
   ok(/withdrawalStrategy, strategyRate,\s+\}\), SAVE_DEBOUNCE_MS\)/.test(mob), 'the choice is saved with the other inputs');
   ok(/label="First-year spending"/.test(mob) && /Not used while \$\{strategyInfo\.label\} sets your spending/.test(mob),
     'a strategy that sets spending shows its first year, and says the target is unused');
+}
+
+section('P154 — the desktop app is parts, joined by one rule');
+
+{
+  const fsMod = require('fs'), pathMod = require('path');
+  const ROOT = pathMod.resolve(__dirname, '..');
+  const sources = require('../tools/sources.cjs');
+  const parts = sources.desktopParts(ROOT);
+  eq(fsMod.existsSync(pathMod.join(ROOT, 'retirement-planner.jsx')), false, 'the single 24,000-line file is gone');
+  gt(parts.length, 10, `the app is ${parts.length} parts`);
+  eq(fsMod.readdirSync(pathMod.join(ROOT, sources.DESKTOP_DIR)).filter(f => !sources.PART_NAME.test(f)).length, 0,
+    'every file in src/desktop is a numbered part — none is silently left out of the build');
+  eq(new Set(parts.map(p => p.slice(sources.DESKTOP_DIR.length + 1, sources.DESKTOP_DIR.length + 3))).size, parts.length,
+    'no two parts share a number, so the order is never a tie');
+  parts.forEach(p => {
+    const text = fsMod.readFileSync(pathMod.join(ROOT, p), 'utf8');
+    ok(text.endsWith('\n') || p === parts[parts.length - 1], `${p} ends at a line boundary`);
+    lt(text.split('\n').length, 3000, `${p} stays under 3,000 lines`);
+  });
+  ok(/function RetirementPlanner\(\) \{/.test(fsMod.readFileSync(pathMod.join(ROOT, parts[parts.length - 1]), 'utf8')),
+    'the app component, which mounts everything, comes last');
+  // The page compiles an unbuilt local edit from the same list, joined the
+  // same way.
+  const html = fsMod.readFileSync(pathMod.join(ROOT, 'index.html'), 'utf8');
+  const stamp = JSON.parse((/window\.PLANNER_BUILD = (\{.*?\});<\/script>/.exec(html) || [])[1] || '{}');
+  eq((stamp.parts || []).join(','), parts.join(','), 'index.html is stamped with the parts, in order — run tools/build.cjs if this fails');
+  ok(/return texts\.indexOf\(null\) === -1 \? texts\.join\(''\) : null;/.test(html), 'and joins them with nothing in between, as the build does');
+  const tw = require('../tools/tailwind.config.cjs');
+  ok(tw.content.some(c => /src[\\/]desktop[\\/]\*\.jsx$/.test(c)), 'Tailwind reads every part for class names');
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────────

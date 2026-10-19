@@ -9,7 +9,7 @@ const theme = require(path.join(__dirname, '..', 'theme.js'));
 const ROOT = path.join(__dirname, '..');
 module.exports = {
   content: [
-    path.join(ROOT, 'retirement-planner.jsx'),
+    path.join(ROOT, 'src', 'desktop', '*.jsx'),
     path.join(ROOT, 'retirement-planner-mobile.jsx'),
   ],
   theme: { extend: { colors: theme.tailwindColors() } },

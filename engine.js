@@ -1,6 +1,6 @@
 // SHARED CALC ENGINE — single source of truth for all financial logic.
 // Consumed directly (via window.PlannerEngine / CommonJS) by the desktop build
-// (retirement-planner.jsx), the mobile build (retirement-planner-mobile.jsx),
+// (src/desktop/*.jsx), the mobile build (retirement-planner-mobile.jsx),
 // the Web Worker (worker.js), and the test suite (tests/run-tests.cjs). There is
 // no longer an embedded copy in any JSX file, so edit engine logic HERE only —
 // every runtime path imports this module, which makes drift impossible.
