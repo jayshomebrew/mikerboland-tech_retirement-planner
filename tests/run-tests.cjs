@@ -15243,7 +15243,7 @@ section('P131 — state tables checked against 2026 law: four enacted changes, f
     ok(/ME_PENSION_CAP \* taxpayers \* inf - \(totalSS \|\| 0\)/.test(engSrc), 'Maine is reduced by total SS too');
     // Supplied by every call inside the projection, so the solver and the final
     // calculation price the same exclusion.
-    eq((engSrc.match(/\{ totalSS: totalSocialSecurity, federalTaxPaid:/g) || []).length, 7,
+    eq((engSrc.match(/\{ totalSS: totalSocialSecurity, federalTaxPaid:/g) || []).length, 8,
       'every state-tax call in the projection passes total Social Security');
     ok(/totalSS: Number\.isFinite\(extraParams\.totalSS\) \? extraParams\.totalSS : taxableSS,/.test(engSrc),
       'and a caller that cannot falls back to what the functions received before');
@@ -16858,6 +16858,43 @@ section('P151 — screens that show the spending target say when a strategy sets
   };
   eq(solve(pi).spendingEdge, null, 'the Dashboard’s solve skips the edge under a strategy');
   ok(Number.isFinite(solve({ ...pi, withdrawalStrategy: 'target' }).spendingEdge), 'and still finds it for a target');
+}
+
+section('P152 — a salary still being earned pays toward a strategy’s spending');
+
+{
+  // One spouse retires at 60 under a withdrawal-led strategy; the other works
+  // to 65. The salary used to be added to the strategy's spending — $142K a
+  // year, then a cliff to $80K when the paychecks stopped — while the
+  // portfolio paid the strategy's full draw anyway.
+  const pi = { ...engine.DEFAULT_PLAN_INFO, myAge: 60, spouseAge: 60, myRetirementAge: 60, spouseRetirementAge: 65,
+    filingStatus: 'married_joint', state: 'Colorado', desiredRetirementIncome: 90000, legacyAge: 95, inflationRate: 0.03,
+    survivorModelEnabled: false };
+  const accts = [
+    { id: 1, name: 'IRA', type: 'traditional_ira', owner: 'me', balance: 1400000, contribution: 0, cagr: 0.06, startAge: 60, stopAge: 60, contributor: 'me' },
+    { id: 2, name: 'Brok', type: 'brokerage', owner: 'joint', balance: 600000, contribution: 0, cagr: 0.06, startAge: 60, stopAge: 60, contributor: 'me', costBasisPercent: 0.7 }];
+  const ss = { id: 2, type: 'social_security', owner: 'me', name: 'SS', amount: 30000, startAge: 67, endAge: 120, cola: 0.025 };
+  const salary = { id: 1, type: 'earned_income', owner: 'spouse', name: 'Sal', amount: 100000, startAge: 60, endAge: 64, cola: 0.03 };
+  ['percent', 'constant', 'vanguard', 'vpw', 'rmd'].forEach(st => {
+    const run = (streams, extra = {}) => engine.computeProjections({ ...pi, withdrawalStrategy: st, ...extra }, accts, streams, [], [], [], 2026, {});
+    const withPay = run([salary, ss]);
+    const noPay = run([ss]);
+    approx(withPay[0].desiredIncome, noPay[0].desiredIncome, `${st}: the first year spends what it would with no salary at all`, 0.001);
+    lt(withPay[0].portfolioWithdrawal, withPay[0].strategyDraw, `${st}: and the salary pays toward it, so the portfolio draws less than the rule`);
+    const at64 = withPay.find(r => r.myAge === 64), at65 = withPay.find(r => r.myAge === 65);
+    ok(at65.desiredIncome / at64.desiredIncome > 0.9 && at65.desiredIncome / at64.desiredIncome < 1.2,
+      `${st}: spending carries on when the paychecks stop — no cliff`);
+    gt(withPay[withPay.length - 1].totalPortfolio, noPay[noPay.length - 1].totalPortfolio, `${st}: and the years of salary leave the portfolio larger`);
+    lt(Math.max(...withPay.map(r => Math.abs(r.solverResidual))), 25, `${st}: the solver lands on every year`);
+    // The retirement year's own last paychecks are a salary too.
+    const july = run([{ ...salary, owner: 'me', startAge: 55, endAge: 59 }, ss], { myRetirementAge: 60, myRetirementMonth: 7, spouseRetirementAge: 60 });
+    gt(july[0].earnedIncome, 0, `${st}: (retiring in July, the year still has six months’ pay)`);
+    const january = run([{ ...salary, owner: 'me', startAge: 55, endAge: 59 }, ss], { myRetirementAge: 60, spouseRetirementAge: 60 });
+    approx(july[0].desiredIncome, january[0].desiredIncome, `${st}: a mid-year retirement’s last paychecks are not counted as retirement spending`, 0.001);
+  });
+  // A target is untouched: salary always paid toward it.
+  const tgt = engine.computeProjections({ ...pi, withdrawalStrategy: 'target' }, accts, [salary, ss], [], [], [], 2026, {});
+  approx(tgt[0].desiredIncome, 90000 * 1, 'a target still spends its target', 0.04);
 }
 
 // ── Summary ──────────────────────────────────────────────────────────────────

@@ -10555,7 +10555,14 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
       // are paid (and any IRMAA-tier or ACA-credit movement it causes). The
       // spending-led solver below searches for the draw whose net meets the gap;
       // a withdrawal-led strategy asks it once, for the draw it has chosen.
-      const netFromDraw = (testWithdrawal) => {
+      //
+      // `base`, when given, replaces the year's own income base — used once, to
+      // price the strategy's draw as if a salary still being earned were not
+      // there (see the strategy block below). The IRMAA and ACA corrections are
+      // deltas against this year's real estimates, so they are left out then.
+      const netFromDraw = (testWithdrawal, base = null) => {
+          const nonSSBase = base ? base.nonSS : nonSSIncomeAfterDeduction;
+          const deductionBase = base ? 0 : preTaxDeduction;
           // Estimate the ACTUAL draw composition for this test withdrawal by simulating the
           // withdrawal priority against current balances (see estimateDrawComposition above).
           // This replaces the old fixed guess (100% pre-tax if pre-tax-first, else 70%), which
@@ -10577,15 +10584,15 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
 
           // SS taxable amount uses "combined income" which INCLUDES capital gains (IRS Pub 915).
           // Base is net of the pre-tax contribution deduction (AGI-side), matching the final calc.
-          const adjustedNonSSIncome = nonSSIncomeAfterDeduction + taxableWithdrawals + estimatedGains;
+          const adjustedNonSSIncome = nonSSBase + taxableWithdrawals + estimatedGains;
           const adjustedTaxableSS = calculateSocialSecurityTaxableAmount(
             totalSocialSecurity, adjustedNonSSIncome, effectiveFilingStatus
           );
           // Federal ORDINARY tax base EXCLUDES capital gains (taxed at preferential LTCG rates below).
-          const ordinaryBaseGross = nonSSIncomeAfterDeduction + taxableWithdrawals + adjustedTaxableSS;
+          const ordinaryBaseGross = nonSSBase + taxableWithdrawals + adjustedTaxableSS;
           // MAGI drives both the NIIT threshold and the senior-deduction phaseout,
           // so it is derived before the federal tax that depends on the deduction.
-          const iterMAGI = ordinaryBaseGross + estimatedGains + preTaxDeduction;
+          const iterMAGI = ordinaryBaseGross + estimatedGains + deductionBase;
           const totalFedOrdinary = calculateFederalTax(ordinaryBaseGross, effectiveFilingStatus, taxIndexYears, pi.inflationRate, fedOpts(iterMAGI));
           // LTCG tax on realized gains, stacked above ordinary taxable income.
           // The 65+ deductions lower ordinary taxable income, so gains stack lower too.
@@ -10631,8 +10638,8 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
           const totalStateTax = calculateStateTax(adjustedNonSSIncome + adjustedTaxableSS, pi.state, effectiveFilingStatus, taxIndexYears, pi.inflationRate, adjustedTaxableSS, iterRetirementIncome, { totalSS: totalSocialSecurity, federalTaxPaid: totalFedOrdinary, primaryAge: myAge, spouseAge: spouseAge, qualifiedRetirementWithdrawals: totalPreTaxFromWithdrawals });
 
           // Tax attributable to the withdrawal = total tax minus tax on guaranteed income alone.
-          const withdrawalFedTax = totalFedTax - baseFederalTax;
-          const withdrawalStateTax = totalStateTax - baseStateTax;
+          const withdrawalFedTax = totalFedTax - (base ? base.fedTax : baseFederalTax);
+          const withdrawalStateTax = totalStateTax - (base ? base.stateTax : baseStateTax);
           const withdrawalTax = withdrawalFedTax + withdrawalStateTax;
 
           // IRMAA cliff correction — only relevant in the first two projection
@@ -10642,14 +10649,14 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
           const iterIRMAA = (estMedicareEligible > 0 && irmaaLookbackMAGI === null)
             ? calculateIRMAASurcharge(iterMAGI, effectiveFilingStatus, taxIndexYears, pi.inflationRate, estMedicareEligible).totalSurcharge
             : estimatedIRMAA;
-          const iterIRMAADelta = iterIRMAA - estimatedIRMAA;
+          const iterIRMAADelta = base ? 0 : iterIRMAA - estimatedIRMAA;
 
           // ACA premium correction — withdrawals move MAGI, which moves the
           // premium tax credit. Book only the delta vs. the pre-loop estimate
           // (estACANetPremium is already inside adjustedDesiredIncome), exactly
           // like the IRMAA correction above. ACA MAGI adds UNTAXED SS to AGI.
           let iterACADelta = 0;
-          if (acaGrossPremium > 0) {
+          if (acaGrossPremium > 0 && !base) {
             const iterACAMagi = ordinaryBaseGross + estimatedGains + (totalSocialSecurity - adjustedTaxableSS);
             iterACADelta = acaCredit(iterACAMagi).netPremium - estACANetPremium;
           }
@@ -10673,9 +10680,29 @@ function computeProjections(pi, accts, streams, assetList, events = [], recurrin
       // depend on each other (the QCD moves the draw's tax, which moves its
       // net), so a few passes settle them; the gift is a small share and each
       // pass shrinks the change.
+      //
+      // A salary still being earned — a spouse still working, or the last
+      // paychecks of the retirement year — pays toward that spending first, as
+      // it does under a target. So the strategy's spending is what its draw and
+      // the plan's other income deliver WITHOUT the salary, priced on a base
+      // with the salary taken out; the salary then covers part of it and the
+      // portfolio draws the rest. Adding the salary on top, as before, showed a
+      // working spouse's pay as retirement spending and drew the strategy's
+      // full amount in years the household did not need it.
+      let salaryFree = null;
+      if (strategyDraw !== null && isRetired && earnedIncome > 0) {
+        const nonSS = Math.max(0, nonSSIncomeAfterDeduction - (earnedIncome - preTaxDeduction));
+        const ssTaxable = calculateSocialSecurityTaxableAmount(totalSocialSecurity, nonSS, effectiveFilingStatus);
+        const gross = nonSS + ssTaxable;
+        const fedTax = calculateFederalTax(gross, effectiveFilingStatus, taxIndexYears, pi.inflationRate, fedOpts(gross));
+        const stateTax = calculateStateTax(gross, pi.state, effectiveFilingStatus, taxIndexYears, pi.inflationRate, ssTaxable, totalPension, { totalSS: totalSocialSecurity, federalTaxPaid: fedTax, primaryAge: myAge, spouseAge: spouseAge });
+        salaryFree = { nonSS, fedTax, stateTax, netIncome: totalGuaranteedIncome + oneTimeNontaxableIncome - fedTax - stateTax };
+      }
       if (strategyDraw !== null && isRetired) {
         for (let pass = 0; pass < 4; pass++) {
-          desiredIncome = Math.max(0, netFromDraw(strategyDraw) + netCurrentIncome);
+          desiredIncome = Math.max(0, salaryFree
+            ? netFromDraw(strategyDraw, salaryFree) + salaryFree.netIncome
+            : netFromDraw(strategyDraw) + netCurrentIncome);
           const gift = charitablePercent > 0 ? desiredIncome * (charitablePercent / 100) : 0;
           if (Math.abs(gift - charitableGiving) < 1) break;
           charitableGiving = gift;
