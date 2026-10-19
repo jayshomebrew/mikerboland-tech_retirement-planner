@@ -16897,6 +16897,25 @@ section('P152 — a salary still being earned pays toward a strategy’s spendin
   approx(tgt[0].desiredIncome, 90000 * 1, 'a target still spends its target', 0.04);
 }
 
+section('P153 — the phone runs every withdrawal strategy');
+
+{
+  const fsMod = require('fs'), pathMod = require('path');
+  const mob = fsMod.readFileSync(pathMod.join(pathMod.resolve(__dirname, '..'), 'retirement-planner-mobile.jsx'), 'utf8');
+  const list = mob.slice(mob.indexOf('const MOBILE_STRATEGIES = ['), mob.indexOf('];', mob.indexOf('const MOBILE_STRATEGIES = [')));
+  eq([...list.matchAll(/\{ id: '(\w+)'/g)].map(m => m[1]).join(','), engine.WITHDRAWAL_STRATEGIES.join(','),
+    'the phone’s picker is the engine’s seven, in the same order');
+  ok(/withdrawalStrategy: 'target',\s+strategyRate: 4,\s+\};/.test(mob), 'the example plan spends its target, at a 4% rate if switched');
+  ok(/withdrawalStrategy,\s+spendingGuardrailsEnabled: withdrawalStrategy === 'guardrails',\s+strategyRatePct: strategyRate \/ 100,/.test(mob),
+    'the projection runs the chosen strategy');
+  const deps = (mob.match(/\}, \[currentAge, retirementAge, legacyAge, portfolio, annualContribution, desiredSpending, cagr, inflationRate,[\s\S]*?birthYear\]\);/) || [''])[0];
+  ['contributionMode', 'currentSalary', 'contributionPercent', 'withdrawalStrategy', 'strategyRate'].forEach(k =>
+    ok(new RegExp(`\\b${k}\\b`).test(deps), `and re-runs when ${k} changes`));
+  ok(/withdrawalStrategy, strategyRate,\s+\}\), SAVE_DEBOUNCE_MS\)/.test(mob), 'the choice is saved with the other inputs');
+  ok(/label="First-year spending"/.test(mob) && /Not used while \$\{strategyInfo\.label\} sets your spending/.test(mob),
+    'a strategy that sets spending shows its first year, and says the target is unused');
+}
+
 // ── Summary ──────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(60)}`);
 if (fail === 0) {

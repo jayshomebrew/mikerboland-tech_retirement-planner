@@ -281,6 +281,23 @@ const check = async (browser, base, name, opts, fn) => {
       ok(len > 200, 'the phone page renders', `${len} characters`);
       const wide = await v.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
       ok(wide <= 1, 'with no sideways scroll at phone width', `${wide}px over`);
+      // Every strategy runs on the phone; the five that set spending say so.
+      const ids = await v.page.$$eval('select[aria-label="Withdrawal strategy"] option', (os) => os.map((o) => o.value));
+      ok(ids.join(',') === 'target,guardrails,constant,percent,rmd,vanguard,vpw', 'the phone offers all seven strategies', ids.join(','));
+      for (const id of ids) {
+        await v.page.selectOption('select[aria-label="Withdrawal strategy"]', id);
+        await v.page.waitForTimeout(250);
+        const text = await v.page.evaluate(() => document.body.innerText);
+        const leads = ['constant', 'percent', 'rmd', 'vanguard', 'vpw'].includes(id);
+        ok(leads ? /First-year spending/i.test(text) && /Not used while/.test(text) : /Sustainable spending/i.test(text),
+          `phone, ${id}: the spending card ${leads ? 'shows the strategy’s first year' : 'is the 4% capacity'}`);
+      }
+      // A reload keeps the choice: it is saved with the other inputs.
+      await v.page.selectOption('select[aria-label="Withdrawal strategy"]', 'vpw');
+      await v.page.waitForTimeout(1200);
+      await v.page.reload();
+      await v.page.waitForTimeout(1200);
+      ok(await v.page.$eval('select[aria-label="Withdrawal strategy"]', (el) => el.value) === 'vpw', 'phone: the strategy is remembered');
     });
   } finally {
     await browser.close();

@@ -446,7 +446,22 @@ const MOBILE_DEFAULTS = {
   otherStartAge: 65,
   otherEndAge: 90,
   otherCola: true,
+  withdrawalStrategy: 'target',
+  strategyRate: 4,
 };
+
+// The full version's seven withdrawal strategies, in its order, named for a
+// phone. The engine runs them; this is only what the picker says.
+const MOBILE_STRATEGIES = [
+  { id: 'target', label: 'Spend my target', hint: 'Spend the amount above each year, rising with inflation. The plan finds the withdrawal that pays for it.' },
+  { id: 'guardrails', label: 'Guardrails (Guyton-Klinger)', hint: 'Your target, cut 10% when markets fall well behind the plan and raised 10% when they run well ahead.' },
+  { id: 'constant', label: 'The 4% rule', hint: 'A set share of the portfolio in the first year, then the same dollars plus inflation every year.' },
+  { id: 'percent', label: 'Fixed percentage', hint: 'The same share of whatever the portfolio holds each year. Never runs out; spending moves with markets.' },
+  { id: 'rmd', label: 'RMD method', hint: 'The portfolio divided by the IRS life-expectancy divisor for your age. Low at first, rising with age.' },
+  { id: 'vanguard', label: 'Vanguard dynamic', hint: 'A share of the portfolio, with each year’s change held between +5% and −2.5% after inflation.' },
+  { id: 'vpw', label: 'Variable percentage (VPW)', hint: 'The payment that would spend the portfolio evenly to age 100, worked out again each year.' },
+];
+const strategyHasRate = (id) => id === 'constant' || id === 'percent' || id === 'vanguard';
 
 function MobilePlanner() {
   // === Inputs (state) ===
@@ -493,6 +508,11 @@ function MobilePlanner() {
   const [otherEndAge, setOtherEndAge] = useState(saved.otherEndAge ?? MOBILE_DEFAULTS.otherEndAge);
   const [otherCola, setOtherCola] = useState(saved.otherCola ?? MOBILE_DEFAULTS.otherCola);
   
+  const [withdrawalStrategy, setWithdrawalStrategy] = useState(saved.withdrawalStrategy ?? MOBILE_DEFAULTS.withdrawalStrategy);
+  const [strategyRate, setStrategyRate] = useState(saved.strategyRate ?? MOBILE_DEFAULTS.strategyRate);
+  // The five that set spending from the portfolio, leaving the target unused.
+  const strategyLeads = !!(WITHDRAWAL_LED && WITHDRAWAL_LED.has(withdrawalStrategy));
+
   const [showDetails, setShowDetails] = useState(false);
 
   // Auto-save all inputs to localStorage (debounced) whenever any of them change, so the app
@@ -505,13 +525,15 @@ function MobilePlanner() {
       cagr, inflationRate, ssEnabled, ssMonthly, ssClaimAge, ssCola,
       pensionEnabled, pensionAnnual, pensionStartAge, pensionCola,
       otherEnabled, otherAnnual, otherStartAge, otherEndAge, otherCola,
+      withdrawalStrategy, strategyRate,
     }), SAVE_DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [currentAge, retirementAge, legacyAge, portfolio, annualContribution, desiredSpending,
       contributionMode, currentSalary, contributionPercent,
       cagr, inflationRate, ssEnabled, ssMonthly, ssClaimAge, ssCola,
       pensionEnabled, pensionAnnual, pensionStartAge, pensionCola,
-      otherEnabled, otherAnnual, otherStartAge, otherEndAge, otherCola]);
+      otherEnabled, otherAnnual, otherStartAge, otherEndAge, otherCola,
+      withdrawalStrategy, strategyRate]);
   
   // Still the example until any input moves off it.
   const isExample = Object.keys(MOBILE_DEFAULTS).every(k => ({
@@ -519,6 +541,7 @@ function MobilePlanner() {
     contributionPercent, desiredSpending, cagr, inflationRate, ssEnabled, ssMonthly, ssClaimAge, ssCola,
     pensionEnabled, pensionAnnual, pensionStartAge, pensionCola,
     otherEnabled, otherAnnual, otherStartAge, otherEndAge, otherCola,
+    withdrawalStrategy, strategyRate,
   })[k] === MOBILE_DEFAULTS[k]);
 
   const birthYear = new Date().getFullYear() - currentAge;
@@ -551,6 +574,9 @@ function MobilePlanner() {
       // has no controls for either, so neither may quietly bill or reorder.
       ltcModel: 'none',
       withdrawalBracketFill: '',
+      withdrawalStrategy,
+      spendingGuardrailsEnabled: withdrawalStrategy === 'guardrails',
+      strategyRatePct: strategyRate / 100,
     };
     // In percent mode the engine reads owner salary from the earned_income stream we inject
     // below and computes contribution = salary × employeePercent each year (with salary COLA).
@@ -697,9 +723,13 @@ function MobilePlanner() {
       guaranteedAtRetirement,
     };
   }, [currentAge, retirementAge, legacyAge, portfolio, annualContribution, desiredSpending, cagr, inflationRate,
+      // These three were missing, so switching to % of salary, or moving
+      // either, left the results on the old projection until something else moved.
+      contributionMode, currentSalary, contributionPercent,
       ssEnabled, ssMonthly, ssClaimAge, ssCola,
       pensionEnabled, pensionAnnual, pensionStartAge, pensionCola,
       otherEnabled, otherAnnual, otherStartAge, otherEndAge, otherCola,
+      withdrawalStrategy, strategyRate,
       birthYear]);
   
   // Find depletion age (first year after retirement where portfolio hits 0)
@@ -718,6 +748,20 @@ function MobilePlanner() {
       return PlannerTheme.normalizeChoice(d.getAttribute('data-look'));
     } catch (e) { return 'dark'; }
   });
+
+  // Under a strategy, spending moves year to year. Its range in today's
+  // dollars, so inflation alone does not read as a raise.
+  const spendingRange = useMemo(() => {
+    if (!strategyLeads) return null;
+    const infl = inflationRate / 100;
+    const years = projections.filter(p => p.myAge >= retirementAge && p.myAge <= legacyAge && (p.desiredIncome || 0) > 0)
+      .map(p => ({ age: p.myAge, real: p.desiredIncome / Math.pow(1 + infl, p.myAge - currentAge) }));
+    if (!years.length) return null;
+    const low = years.reduce((a, b) => (b.real < a.real ? b : a));
+    const high = years.reduce((a, b) => (b.real > a.real ? b : a));
+    return { first: years[0], low, high };
+  }, [strategyLeads, projections, retirementAge, legacyAge, currentAge, inflationRate]);
+  const strategyInfo = MOBILE_STRATEGIES.find(s => s.id === withdrawalStrategy) || MOBILE_STRATEGIES[0];
 
   const yearsToRetirement = Math.max(0, retirementAge - currentAge);
   const planSurvives = depletionAge === null || depletionAge > legacyAge;
@@ -785,12 +829,21 @@ function MobilePlanner() {
             sublabel="Inflation-adjusted up"
             color="emerald"
           />
-          <ResultCard
-            label="Sustainable spending"
-            value={fmt(sustainableAnnual)}
-            sublabel="4% portfolio + income"
-            color="amber"
-          />
+          {strategyLeads ? (
+            <ResultCard
+              label="First-year spending"
+              value={fmt(retirementProj?.desiredIncome)}
+              sublabel={`Set by ${strategyInfo.label}`}
+              color="amber"
+            />
+          ) : (
+            <ResultCard
+              label="Sustainable spending"
+              value={fmt(sustainableAnnual)}
+              sublabel="4% portfolio + income"
+              color="amber"
+            />
+          )}
           <ResultCard
             label={planSurvives ? `Cushion at ${legacyAge}` : 'Portfolio runs out'}
             value={planSurvives ? fmt(surplusAtLegacy) : `Age ${depletionAge}`}
@@ -869,7 +922,31 @@ function MobilePlanner() {
           <MoneyInput label="Annual contributions" value={annualContribution} onChange={setAnnualContribution} hint="What you save each year (yours + employer match)" />
         )}
 
-        <MoneyInput label="Desired annual spending" value={desiredSpending} onChange={setDesiredSpending} hint="What you want to spend each year in retirement (today's dollars)" />
+        <MoneyInput label="Desired annual spending" value={desiredSpending} onChange={setDesiredSpending}
+          hint={strategyLeads
+            ? `Not used while ${strategyInfo.label} sets your spending — kept for when you switch back.`
+            : "What you want to spend each year in retirement (today's dollars)"} />
+
+        <div className="py-2">
+          <label htmlFor="m-strategy" className="block text-sm text-slate-300 font-medium mb-1">How you withdraw</label>
+          <select id="m-strategy" value={withdrawalStrategy} onChange={e => setWithdrawalStrategy(e.target.value)}
+            className="w-full px-3 py-2.5 bg-slate-800 border border-slate-700 rounded-lg text-base text-slate-100 focus:outline-none focus:border-emerald-500"
+            aria-label="Withdrawal strategy">
+            {MOBILE_STRATEGIES.map(s => <option key={s.id} value={s.id}>{s.label}</option>)}
+          </select>
+          <p className="text-xs text-slate-500 mt-1">{strategyInfo.hint}</p>
+        </div>
+        {strategyHasRate(withdrawalStrategy) && (
+          <SliderRow
+            label={withdrawalStrategy === 'constant' ? 'First-year withdrawal' : 'Withdrawal each year'}
+            value={strategyRate}
+            onChange={setStrategyRate}
+            min={2}
+            max={8}
+            step={0.1}
+            format={(v) => `${v.toFixed(1)}% of portfolio`}
+          />
+        )}
         
         <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1 mt-4">Assumptions</h2>
         <SliderRow label="Investment return (CAGR)" value={cagr} onChange={setCagr} min={2} max={12} step={0.5} format={(v) => `${v}%`} />
@@ -1001,6 +1078,12 @@ function MobilePlanner() {
                 : annualContribution * yearsToRetirement
             )}</span></div>
             <div className="flex justify-between"><span className="text-slate-400">Portfolio at retirement</span><span className="text-emerald-300 tabular-nums">{fmtFull(retirementProj.totalPortfolio)}</span></div>
+            {spendingRange && (
+              <>
+                <div className="flex justify-between"><span className="text-slate-400">Leanest year (today’s $)</span><span className="text-amber-300 tabular-nums">{fmtFull(spendingRange.low.real)} at {spendingRange.low.age}</span></div>
+                <div className="flex justify-between"><span className="text-slate-400">Richest year (today’s $)</span><span className="text-amber-300 tabular-nums">{fmtFull(spendingRange.high.real)} at {spendingRange.high.age}</span></div>
+              </>
+            )}
             {ssEnabled && ssAnnual > 0 && (
               <div className="flex justify-between"><span className="text-slate-400">Lifetime SS received</span><span className="text-sky-300 tabular-nums">{fmtFull(projections.filter(p => p.myAge >= ssClaimAge).reduce((s, p) => s + (p.socialSecurity || 0), 0))}</span></div>
             )}
