@@ -15493,8 +15493,11 @@ section('P134 — the Dashboard and the Sandbox are one page');
     'while folded, every moved lever is named on its header');
   ok(/\.\.\.strategySummary, \.\.\.streamSummary/.test(dash),
     'including the strategy and income-stream levers, not just the sliders');
-  ok(/leversOpen \|\| touched \? 'sticky top-2 z-30'/.test(dash),
-    'and the card stays pinned while a what-if is on screen, so no chart can be mistaken for the plan');
+  // The card itself scrolls away; a one-line strip is pinned in its place
+  // (tests/smoke-ui.cjs scrolls the page and measures it).
+  eq(/data-tour="whatif-levers"[^>]*sticky/.test(dash), false, 'the card no longer pins itself over the page');
+  ok(/\{\(leversOpen \|\| touched\) && \(\s*<div className="sticky top-2 z-30 h-0"/.test(dash),
+    'a strip is pinned instead while a what-if is on, so no chart can be mistaken for the plan');
   ok(/showing a what-if, not your plan/.test(dash), 'which it says in words');
 
   // The what-if tiles repeated the summary cards when nothing had moved.

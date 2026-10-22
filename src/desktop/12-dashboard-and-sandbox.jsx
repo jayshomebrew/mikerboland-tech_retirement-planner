@@ -888,6 +888,24 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
     () => [...PANEL_REGISTRY.map(e => e.id), ...SANDBOX_EXTRA_PANELS.map(e => e.id)], []);
   const views = Array.isArray(cfg.views) ? cfg.views : [];
   const [viewName, setViewName] = useState('');
+
+  // ── The pinned strip ────────────────────────────────────────────────────
+  // The card used to stay pinned whole while open or while a what-if was on:
+  // 494 px of it, three times that with its drawers open, covering the page it
+  // was there to steer. Now it scrolls away like anything else, and once it
+  // has, a one-line strip takes its place at the top of the screen: what has
+  // changed, the way back to the plan, and the sliders on demand, for moving
+  // one while watching a chart.
+  const leversRef = useRef(null);
+  const [leversPassed, setLeversPassed] = useState(false);
+  const [stripSliders, setStripSliders] = useState(false);
+  useEffect(() => {
+    const el = leversRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return undefined;
+    const io = new IntersectionObserver(([e]) => setLeversPassed(!e.isIntersecting && e.boundingClientRect.top < 0));
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
   const sameSet = (a, b) => a.length === b.length && a.every(x => b.includes(x));
   const showAllPanels = () => setSandboxConfig(prev => ({ ...(prev || {}), panels: allPanelIds }));
   const applyView = (v) => setSandboxConfig(prev => ({ ...(prev || {}), panels: [...v.panels] }));
@@ -905,6 +923,39 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
   };
   const deleteView = (name) => setSandboxConfig(prev => ({
     ...(prev || {}), views: (prev?.views || []).filter(v => v.name !== name) }));
+
+  // The five sliders, built once: the card shows them, and so does the pinned
+  // strip when its reader asks for them.
+  const sliderRow = (
+    <div className="flex flex-wrap gap-x-6 gap-y-4">
+      <SandboxSlider label={married ? 'My retirement age' : 'Retirement age'} value={myRet}
+              onChange={v => setControl('myRetirementAge', v)}
+              min={Math.max(45, (personalInfo.myAge || 0) + 1)} max={80} planValue={planMyRet} />
+      {married && (
+        <SandboxSlider label="Spouse retirement age" value={spRet}
+                onChange={v => setControl('spouseRetirementAge', v)}
+                min={Math.max(45, (personalInfo.spouseAge || 0) + 1)} max={80} planValue={planSpRet} />
+      )}
+      <SandboxSlider label={married ? 'My SS claim age' : 'SS claim age'} value={claimMe}
+              onChange={v => setControl('claimMe', v)} min={62} max={70} planValue={planClaimMe} />
+      {married && (
+        <SandboxSlider label="Spouse SS claim age" value={claimSp}
+                onChange={v => setControl('claimSpouse', v)} min={62} max={70} planValue={planClaimSp} />
+      )}
+      <SandboxSlider label="Savings rate while working"
+              value={+(acctAdjCount && editedSavingsRate !== null ? editedSavingsRate : acctAdjCount ? planSavingsRate : savingsRate).toFixed(1)}
+              onChange={v => setControl('savingsRate', v)} min={0} max={60} step={0.5}
+              planValue={+planSavingsRate.toFixed(1)} suffix="%"
+              disabled={acctAdjCount > 0}
+              note={acctAdjCount > 0 ? 'set by your account edits below' : null} />
+      <SandboxSlider label="Spending in retirement (after tax)" value={spend}
+              onChange={v => setControl('spending', v)} min={0}
+              max={Math.max(300000, Math.round((planSpend || 100000) * 2))} step={2500}
+              planValue={planSpend} format={money}
+              disabled={pickLeadsWithdrawal}
+              note={pickLeadsWithdrawal ? `set by the ${strategyLabel(strategyPick)} strategy` : null} />
+    </div>
+  );
 
   return (
     <div className="space-y-4">
@@ -974,14 +1025,13 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
       />
 
       {/* ── The what-if levers ─────────────────────────────────────────── */}
-      {/* Sticky while it is doing something — open, or folded with a lever
-          moved — so the reader can never scroll into a chart without the
-          notice that it is not their plan. Folded and untouched, it is one
-          line that scrolls away like anything else. */}
-      <div data-tour="whatif-levers"
-           className={`${previewing
+      {/* Scrolls with the page. While it is doing something — open, or folded
+          with a lever moved — the strip below stands in for it once it is out
+          of sight, so no chart can be mistaken for the plan. */}
+      <div data-tour="whatif-levers" ref={leversRef}
+           className={previewing
              ? swapClass(swapClass(cardStyle, 'border-slate-700/50', 'border-amber-500/40'), 'backdrop-blur-sm', 'backdrop-blur-md') + ' bg-slate-900/45'
-             : cardStyle} ${leversOpen || touched ? 'sticky top-2 z-30' : ''}`}>
+             : cardStyle}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <button onClick={() => setCfg({ leversOpen: !leversOpen })} aria-expanded={leversOpen}
             className="flex items-center gap-2 text-left min-w-0 flex-1">
@@ -1008,34 +1058,7 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
           everything on this page then describes the same what-if. Save it as a scenario to keep it, or make it
           the plan.
         </p>
-        <div className="flex flex-wrap gap-x-6 gap-y-4">
-          <SandboxSlider label={married ? 'My retirement age' : 'Retirement age'} value={myRet}
-                  onChange={v => setControl('myRetirementAge', v)}
-                  min={Math.max(45, (personalInfo.myAge || 0) + 1)} max={80} planValue={planMyRet} />
-          {married && (
-            <SandboxSlider label="Spouse retirement age" value={spRet}
-                    onChange={v => setControl('spouseRetirementAge', v)}
-                    min={Math.max(45, (personalInfo.spouseAge || 0) + 1)} max={80} planValue={planSpRet} />
-          )}
-          <SandboxSlider label={married ? 'My SS claim age' : 'SS claim age'} value={claimMe}
-                  onChange={v => setControl('claimMe', v)} min={62} max={70} planValue={planClaimMe} />
-          {married && (
-            <SandboxSlider label="Spouse SS claim age" value={claimSp}
-                    onChange={v => setControl('claimSpouse', v)} min={62} max={70} planValue={planClaimSp} />
-          )}
-          <SandboxSlider label="Savings rate while working"
-                  value={+(acctAdjCount && editedSavingsRate !== null ? editedSavingsRate : acctAdjCount ? planSavingsRate : savingsRate).toFixed(1)}
-                  onChange={v => setControl('savingsRate', v)} min={0} max={60} step={0.5}
-                  planValue={+planSavingsRate.toFixed(1)} suffix="%"
-                  disabled={acctAdjCount > 0}
-                  note={acctAdjCount > 0 ? 'set by your account edits below' : null} />
-          <SandboxSlider label="Spending in retirement (after tax)" value={spend}
-                  onChange={v => setControl('spending', v)} min={0}
-                  max={Math.max(300000, Math.round((planSpend || 100000) * 2))} step={2500}
-                  planValue={planSpend} format={money}
-                  disabled={pickLeadsWithdrawal}
-                  note={pickLeadsWithdrawal ? `set by the ${strategyLabel(strategyPick)} strategy` : null} />
-        </div>
+        {sliderRow}
 
         {/* ── Strategy drawer ─────────────────────────────────────────── */}
         <div className="mt-3 pt-3 border-t border-slate-700/50">
@@ -1473,6 +1496,42 @@ function DashboardTab({ accounts, activeScenarioId, applyPlanAsBaseline, assets,
         </div>
         </>)}
       </div>
+
+      {/* The strip rides a zero-height sticky rail, so it takes no room in the
+          page; the rail's own top margin is cancelled so the gap below the
+          card is unchanged. */}
+      {(leversOpen || touched) && (
+        <div className="sticky top-2 z-30 h-0" style={{ marginTop: 0 }}>
+          {leversPassed && (
+            <div data-whatif-strip
+              className={`absolute inset-x-0 top-0 rounded-xl border px-4 py-2 shadow-lg backdrop-blur-md bg-slate-900/90 ${
+                previewing ? 'border-amber-500/40' : 'border-slate-700/60'}`}>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="text-sm font-semibold text-slate-100 whitespace-nowrap">What if…</span>
+                <span className={`text-sm truncate min-w-0 flex-1 ${leverSummary.length ? 'text-amber-400/90' : 'text-slate-500'}`}>
+                  {leverSummary.length ? leverSummary.join(' · ') : 'following your plan'}
+                </span>
+                <button onClick={() => setStripSliders(o => !o)} aria-expanded={stripSliders}
+                  className="text-xs px-2.5 py-1 rounded border border-slate-600 text-slate-300 hover:text-slate-100 hover:bg-slate-700/60 whitespace-nowrap">
+                  {stripSliders ? 'Hide sliders ▴' : 'Sliders ▾'}
+                </button>
+                <button onClick={() => { setCfg({ leversOpen: true }); leversRef.current && leversRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' }); }}
+                  className="text-xs px-2.5 py-1 rounded border border-slate-600 text-slate-300 hover:text-slate-100 hover:bg-slate-700/60 whitespace-nowrap"
+                  title="Back up to the what-if card, with its strategy, accounts and income streams">
+                  All controls ↑
+                </button>
+                {touched && (
+                  <button onClick={resetAll}
+                    className="text-xs px-2.5 py-1 rounded border border-amber-500/50 text-amber-300 hover:bg-amber-500/15 whitespace-nowrap">
+                    Back to my plan
+                  </button>
+                )}
+              </div>
+              {stripSliders && <div className="mt-3 pb-1">{sliderRow}</div>}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Panel picker ───────────────────────────────────────────────── */}
       {/* Folded to one row by default: choosing panels is something done once

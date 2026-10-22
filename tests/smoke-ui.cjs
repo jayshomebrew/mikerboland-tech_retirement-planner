@@ -197,6 +197,43 @@ const check = async (browser, base, name, opts, fn) => {
       }
     });
 
+    // ── 2b. The what-if card scrolls away; a slim strip stands in for it ────
+    section('Dashboard: the what-if strip');
+    await check(browser, base, 'What-if strip', {}, async (v) => {
+      await tab(v.page, 'Dashboard');
+      const card = '[data-tour="whatif-levers"]';
+      await v.page.click(`${card} button[aria-expanded]`);   // open the card
+      await v.page.waitForTimeout(300);
+      ok(await v.page.locator('[data-whatif-strip]').count() === 0, 'while the card is on screen there is no strip');
+      // Move a slider, so the page shows a what-if.
+      const slider = v.page.locator(`${card} input[type="range"]`).first();
+      await slider.focus();
+      await v.page.keyboard.press('ArrowLeft');
+      await v.page.waitForTimeout(400);
+      // Scroll well past the card.
+      await v.page.evaluate(() => {
+        const m = document.querySelector('main');
+        const el = (m && m.scrollHeight > m.clientHeight) ? m : document.scrollingElement;
+        el.scrollTop = 2000;
+      });
+      await v.page.waitForTimeout(500);
+      const cardTop = await v.page.$eval(card, (el) => el.getBoundingClientRect().bottom);
+      ok(cardTop < 0, 'the card scrolls away with the page', `bottom at ${Math.round(cardTop)}px`);
+      const strip = v.page.locator('[data-whatif-strip]');
+      ok(await strip.count() === 1, 'and a strip takes its place');
+      if (await strip.count() === 1) {
+        const box = await strip.boundingBox();
+        ok(box.height < 70 && box.y >= 0 && box.y < 40, 'pinned at the top, one line high', `${Math.round(box.height)}px at y=${Math.round(box.y)}`);
+        ok(/retire at|I retire at/.test(await strip.innerText()), 'naming what has changed');
+        await strip.locator('button:has-text("Sliders")').click();
+        await v.page.waitForTimeout(250);
+        ok(await strip.locator('input[type="range"]').count() >= 4, 'the sliders come down on demand');
+        await strip.locator('button:has-text("Back to my plan")').click();
+        await v.page.waitForTimeout(400);
+        ok(/following your plan/.test(await strip.innerText()), 'and Back to my plan undoes the what-if', await strip.innerText());
+      }
+    });
+
     // ── 3. The look picker ───────────────────────────────────────────────────
     section('The look picker');
     await check(browser, base, 'Looks', {}, async (v) => {
